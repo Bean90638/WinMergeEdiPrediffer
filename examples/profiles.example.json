@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "id": "edi850",
+      "name": "EDI 850",
+      "enabled": true,
+      "priority": 10,
+      "isDefault": false,
+      "filePattern": "^D:\\\\ProjectGit\\\\Brad\\\\EDI\\\\(old|new)\\\\A_850\\.edi$",
+      "rules": [
+        {
+          "id": "850st02",
+          "name": "忽略 ST02 流水號，保留 ST01",
+          "enabled": true,
+          "useRegularExpression": true,
+          "ignoreCase": false,
+          "findPattern": "(^|~)(ST\\*[^*~\\r\\n]+\\*)[^*~\\r\\n]*",
+          "replacement": "$1$2<IGNORE>"
+        }
+      ]
+    },
+    {
+      "id": "edi860",
+      "name": "EDI 860",
+      "enabled": true,
+      "priority": 20,
+      "isDefault": false,
+      "filePattern": "^D:\\\\ProjectGit\\\\Brad\\\\EDI\\\\(old|new)\\\\A_860\\.edi$",
+      "rules": [
+        {
+          "id": "860st02",
+          "name": "忽略 ST02 流水號，保留 ST01",
+          "enabled": true,
+          "useRegularExpression": true,
+          "ignoreCase": false,
+          "findPattern": "(^|~)(ST\\*[^*~\\r\\n]+\\*)[^*~\\r\\n]*",
+          "replacement": "$1$2<IGNORE>"
+        }
+      ]
+    },
+    {
+      "id": "default",
+      "name": "預設規則組",
+      "enabled": true,
+      "priority": 999,
+      "isDefault": true,
+      "filePattern": ".*",
+      "rules": []
+    }
+  ]
+}
