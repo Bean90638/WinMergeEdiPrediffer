@@ -1,0 +1,121 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install .NET SDK from global.json
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+
+      - name: Build manager, native bridge and verification tool
+        run: |
+          dotnet build ./WinMergeEdiPrediffer.slnx -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+
+      - name: Stage Windows x64 package
+        run: |
+          $package = 'artifacts/WinMergeEdiPrediffer-win-x64'
+          New-Item -ItemType Directory -Force $package | Out-Null
+          # Keep the existing build layout: CopyPluginPayload supplies the native COM files.
+          Copy-Item 'src/WinMergeEdiPrediffer.Manager/bin/Release/net10.0-windows/*' $package -Recurse
+          Copy-Item README.md $package
+          Get-ChildItem $package -Filter '*.pdb' -Recurse | Remove-Item
+          $required = @(
+            'WinMergeEdiPrediffer.Manager.exe',
+            'WinMergeEdiPrediffer.Manager.dll',
+            'WinMergeEdiPrediffer.Manager.deps.json',
+            'WinMergeEdiPrediffer.Manager.runtimeconfig.json',
+            'WinMergeEdiPrediffer.Core.dll',
+            'profiles.example.json',
+            'Plugin/WinMergeEdiPrediffer.Plugin.dll',
+            'Plugin/WinMergeEdiPrediffer.Plugin.comhost.dll',
+            'Plugin/WinMergeEdiPrediffer.Plugin.bridge.dll',
+            'Plugin/WinMergeEdiPrediffer.Plugin.deps.json',
+            'Plugin/WinMergeEdiPrediffer.Plugin.runtimeconfig.json'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path $package $file) -PathType Leaf)) {
+              throw "Package is missing: $file"
+            }
+          }
+          @{
+            commit = $env:GITHUB_SHA
+            ref = $env:GITHUB_REF_NAME
+            sdk = (dotnet --version)
+          } | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+
+      - name: Verify rules, deployment and native COM routing
+        run: |
+          # COM verification writes a profile beside the DLL; test a copy to keep the ZIP clean.
+          New-Item -ItemType Directory -Force work | Out-Null
+          Copy-Item 'artifacts/WinMergeEdiPrediffer-win-x64/Plugin' 'work/verification-payload' -Recurse
+          dotnet run --project tests/WinMergeEdiPrediffer.Verification -c Release --no-build -- --com-payload work/verification-payload --report artifacts/verification.json
+          if ($LASTEXITCODE -ne 0) { throw 'Verification failed.' }
+
+      - name: Create ZIP and SHA256 checksum
+        run: |
+          $zip = 'artifacts/WinMergeEdiPrediffer-win-x64.zip'
+          Compress-Archive -Path 'artifacts/WinMergeEdiPrediffer-win-x64' -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  WinMergeEdiPrediffer-win-x64.zip" | Set-Content "$zip.sha256" -Encoding ascii
+
+      - name: Upload downloadable package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: WinMergeEdiPrediffer-win-x64
+          path: |
+            artifacts/*.zip
+            artifacts/*.sha256
+            artifacts/verification.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: WinMergeEdiPrediffer-win-x64
+          path: artifacts
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A rerun may retry uploads, but never silently replace an existing release asset.
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            options=()
+            if [[ "$RELEASE_TAG" == *-* ]]; then options+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "$RELEASE_TAG" "${options[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" artifacts/*.zip artifacts/*.sha256 artifacts/verification.json
