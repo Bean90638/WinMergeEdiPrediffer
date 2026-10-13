@@ -77,11 +77,11 @@ internal sealed class MainForm : Form
         FormClosing += (_, e) => { if (!ConfirmPending()) e.Cancel = true; };
         BindGroups(); UpdateStatus();
     }
-    private static DataGridView Grid(string name) => new()
+    private static DataGridView Grid(string name) => new RuleGridView()
     {
         Dock = DockStyle.Fill, AccessibleName = name, AutoGenerateColumns = false, AllowUserToAddRows = false,
         AllowUserToDeleteRows = false, AllowUserToOrderColumns = false, MultiSelect = false,
-        SelectionMode = DataGridViewSelectionMode.FullRowSelect, RowHeadersWidth = 28,
+        SelectionMode = DataGridViewSelectionMode.CellSelect, RowHeadersWidth = 28,
         BackgroundColor = SystemColors.Window, EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2
     };
     private static TextBox Editor(string name) => new() { Dock = DockStyle.Fill, Multiline = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = new Font("Consolas", 11), AccessibleName = name };

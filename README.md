@@ -32,6 +32,8 @@ Start-Process .\src\WinMergeEdiPrediffer.Manager\bin\Release\net10.0-windows\Win
 
 **Ctrl+S 只儲存設定，還要按「套用到 WinMerge」才會生效。** 修改設定後，請重新開啟預覽。
 
+點選「完整路徑＋檔名正則」、「尋找」或「取代」儲存格，按 **Ctrl+C** 只複製該欄的純文字，不含整列、標題或表格。正在編輯文字時可選取部分內容複製。
+
 ## 3. 設定範例
 
 「正則」是文字比對的寫法。以下可直接貼進管理器，再改成自己的檔名與資料夾。
