@@ -14,11 +14,13 @@ public sealed class WinMergeScript : IDispatchBridge, ICustomQueryInterface
     private readonly LiveProfileReader profiles;
     private readonly string hostPath;
     private string currentFilePath = "";
+    private string? originalFilePath;
     private static readonly Dictionary<string, int> Members = new(StringComparer.OrdinalIgnoreCase)
     {
         ["PluginEvent"] = 1, ["PluginDescription"] = 2, ["PluginFileFilters"] = 3,
         ["PluginIsAutomatic"] = 4, ["PluginExtendedProperties"] = 5,
-        ["PrediffBufferW"] = 10, ["ShowSettingsDialog"] = 11, ["PluginVariables"] = 12
+        ["PrediffBufferW"] = 10, ["ShowSettingsDialog"] = 11, ["PluginVariables"] = 12,
+        ["PluginOriginalFilePath"] = 13
     };
 
     public WinMergeScript()
@@ -85,28 +87,43 @@ public sealed class WinMergeScript : IDispatchBridge, ICustomQueryInterface
                     1 => "BUFFER_PREDIFF", 2 => profile.SchemaVersion == 3 ? "EDI 預差異器：依路徑選組、JSON 規則熱更新（C# COM）" : $"EDI 規則組：{profile.Group.Name}（C# COM）",
                     3 => profile.FileFilter, 4 => profile.SchemaVersion == 3 || profile.Group.Enabled,
                     5 => "SettingsDialog=1;MenuCaption=" + (profile.SchemaVersion == 3 ? "EDI 預差異器" : profile.Group.Name),
-                    12 => currentFilePath,
+                    12 => currentFilePath, 13 => originalFilePath ?? "",
                     _ => throw new MissingMemberException()
                 };
-            else if ((flags & 4) != 0 && id == 12)
+            else if ((flags & 4) != 0 && id is 12 or 13)
             {
-                // 清掉上一個檔案，失敗的 setter 不可沿用舊路徑選組。
-                currentFilePath = "";
+                // Host 先傳處理路徑，再傳原始路徑；每次開始皆清除上一側的來源。
+                if (id == 12) { currentFilePath = ""; originalFilePath = null; }
+                else originalFilePath = null;
+                var property = id == 12 ? "PluginVariables" : "PluginOriginalFilePath";
                 if (parameters.cArgs != 1 || parameters.rgvarg == IntPtr.Zero)
-                    throw new ArgumentException("PluginVariables 必須接收一個檔案路徑字串。");
-                currentFilePath = Marshal.GetObjectForNativeVariant(parameters.rgvarg) as string
-                    ?? throw new ArgumentException("PluginVariables 的 VARIANT 必須是檔案路徑字串。");
+                    throw new ArgumentException($"{property} 必須接收一個檔案路徑字串。");
+                var path = Marshal.GetObjectForNativeVariant(parameters.rgvarg) as string
+                    ?? throw new ArgumentException($"{property} 的 VARIANT 必須是檔案路徑字串。");
+                if (id == 12) currentFilePath = path;
+                else originalFilePath = path;
                 value = null!;
             }
             else if ((flags & 1) != 0 && id == 10)
             {
-                var path = currentFilePath;
-                currentFilePath = "";
-                if (profile.SchemaVersion == 3 && !Path.IsPathFullyQualified(path))
-                    throw new InvalidOperationException("WinMerge 未提供完整檔案路徑，無法選取 EDI 規則組。此版本需要支援 PluginVariables。");
+                var processingPath = currentFilePath;
+                var path = originalFilePath;
+                currentFilePath = ""; originalFilePath = null;
+                if (profile.SchemaVersion == 3 && path is null)
+                {
+                    RoutingDiagnostics.Write(profile, processingPath, null, null, "missing-original-path", false);
+                    throw new InvalidOperationException("WinMerge 未提供原始檔案路徑，無法選取 EDI 規則組。請使用支援 PluginOriginalFilePath 的 WinMerge 修正版。");
+                }
+                if (profile.SchemaVersion == 3 && path!.Length > 0 && !Path.IsPathFullyQualified(path))
+                    throw new InvalidOperationException("WinMerge 提供的原始檔案路徑不是完整路徑，無法選取 EDI 規則組。");
+                // Host 明確傳入空來源代表未儲存的新文件；保留內容，不套用預設組。
                 var group = profile.SchemaVersion == 3
-                    ? RuleEngine.SelectGroup(profile.RoutingConfiguration!, path) : profile.Group;
-                value = Prediff(ref parameters, group);
+                    ? string.IsNullOrEmpty(path) ? null : RuleEngine.SelectGroup(profile.RoutingConfiguration!, path)
+                    : profile.Group;
+                value = Prediff(ref parameters, group, out var changed);
+                RoutingDiagnostics.Write(profile, processingPath, path, group,
+                    string.IsNullOrEmpty(path) && profile.SchemaVersion == 3 ? "no-original-path"
+                        : group is null ? "no-match" : "selected", changed);
             }
             else if ((flags & 1) != 0 && id == 11 && parameters.cArgs == 0)
             {
@@ -122,7 +139,7 @@ public sealed class WinMergeScript : IDispatchBridge, ICustomQueryInterface
         }
         catch (Exception ex)
         {
-            if (id is 10 or 12) currentFilePath = "";
+            if (id is 10 or 12 or 13) { currentFilePath = ""; originalFilePath = null; }
             // 返回 EXCEPINFO，讓 WinMerge 顯示失敗；不可默默將無法處理的檔案當作相同。
             if (exceptionInfo != IntPtr.Zero)
                 Marshal.StructureToPtr(new EXCEPINFO { bstrSource = "WinMergeEdiPrediffer", bstrDescription = ex.Message, scode = ex.HResult }, exceptionInfo, false);
@@ -130,7 +147,7 @@ public sealed class WinMergeScript : IDispatchBridge, ICustomQueryInterface
         }
     }
 
-    private bool Prediff(ref DISPPARAMS arguments, RuleGroup? group)
+    private bool Prediff(ref DISPPARAMS arguments, RuleGroup? group, out bool contentChanged)
     {
         if (arguments.cArgs != 3) throw new ArgumentException("PrediffBufferW 必須接收 text、size、changed。");
         var variantSize = IntPtr.Size == 8 ? 24 : 16;
@@ -147,7 +164,8 @@ public sealed class WinMergeScript : IDispatchBridge, ICustomQueryInterface
             Marshal.FreeBSTR(bstr);
         }
         Marshal.WriteInt32(size, output.Length);
-        Marshal.WriteInt16(changed, output != original ? (short)-1 : (short)0);
+        contentChanged = output != original;
+        Marshal.WriteInt16(changed, contentChanged ? (short)-1 : (short)0);
         return true;
     }
 

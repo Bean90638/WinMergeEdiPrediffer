@@ -59,11 +59,11 @@ internal static class RouterVerification
         check(unchanged.Handled && !unchanged.Changed && unchanged.Size == unchanged.Text.Length, "native unchanged content");
         check(client.Prediff("no EDI content\r\n", wrapVariants: true, fullPath: path850) == unchanged, "WinMerge wrapped unchanged content");
         check(!client.Prediff("ST*850*0001~", fullPath: @"D:\random.txt").Changed, "fallback with no rules preserves content");
-        check(Fails(() => client.Prediff("ST*850*0001~"), "完整檔案路徑"), "path is consumed once and never reused for a different file");
-        check(Fails(() => client.Prediff("ST*850*0001~", fullPath: "relative.edi"), "完整檔案路徑"), "missing full path reports COM error");
+        check(Fails(() => client.Prediff("ST*850*0001~"), "原始檔案路徑"), "path is consumed once and never reused for a different file");
+        check(Fails(() => client.Prediff("ST*850*0001~", fullPath: "relative.edi"), "原始檔案路徑"), "missing full path reports COM error");
         client.SetProperty("PluginVariables", path850);
         check(Fails(() => client.SetProperty("PluginVariables", 42), "VARIANT"), "invalid path setter reports an explicit type error");
-        check(Fails(() => client.Prediff("ST*850*0001~"), "完整檔案路徑"), "failed setter clears preceding valid path");
+        check(Fails(() => client.Prediff("ST*850*0001~"), "原始檔案路徑"), "failed setter clears preceding valid path");
         var staticPaths = exported.Manifest.OwnedFiles.Where(f => f != PluginExporter.LiveRulesFilename).Select(f => Path.Combine(root, f)).ToArray();
         var before = staticPaths.ToDictionary(f => f, f => (Bytes: File.ReadAllBytes(f), Modified: File.GetLastWriteTimeUtc(f)));
         var locks = staticPaths.Select(f => File.Open(f, FileMode.Open, FileAccess.Read, FileShare.Read)).ToArray();
@@ -120,7 +120,7 @@ internal static class RouterVerification
             PluginExporter.AtomicWrite(snapshotPath, "{");
             check(Fails(() => client.Prediff("X", fullPath: @"D:\Test.edi"), "COM PluginVariables"), "corrupt live rules report COM error");
             PluginExporter.AtomicWrite(snapshotPath, validSnapshot);
-            check(Fails(() => client.Prediff("X"), "完整檔案路徑"), "corrupt snapshot clears path even on setter failure");
+            check(Fails(() => client.Prediff("X"), "原始檔案路徑"), "corrupt snapshot clears path even on setter failure");
             check(client.Prediff("X", fullPath: @"D:\Test.edi").Text == "Z", "COM object recovers after valid rules restored");
             foreach (var group in configuration.Groups) group.Enabled = false;
             Hot(ApplyLive(), "all groups disabled without unloading");

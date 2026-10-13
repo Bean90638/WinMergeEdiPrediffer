@@ -70,6 +70,16 @@ if (payloadArgument >= 0)
     var payload = Path.GetFullPath(args[payloadArgument + 1]);
     DeploymentVerification.Run(configuration, payload, Check);
     RouterVerification.Run(configuration, payload, Check);
+    OriginalPathVerification.Run(payload, Check);
+}
+var winMergeArgument = Array.IndexOf(args, "--winmerge-path");
+if (winMergeArgument >= 0)
+{
+    if (payloadArgument < 0) throw new ArgumentException("--winmerge-path requires --com-payload.");
+    var fixtureArgument = Array.IndexOf(args, "--edi-fixtures");
+    WinMergeIntegrationVerification.Run(Path.GetFullPath(args[winMergeArgument + 1]),
+        Path.GetFullPath(args[payloadArgument + 1]), Check,
+        fixtureArgument >= 0 ? Path.GetFullPath(args[fixtureArgument + 1]) : null);
 }
 var reportArgument = Array.IndexOf(args, "--report");
 if (reportArgument >= 0)

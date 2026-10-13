@@ -30,6 +30,9 @@ AddFunction(dispatch, 6, 11, "ShowSettingsDialog", INVOKEKIND.INVOKE_FUNC, VarEn
 AddFunction(dispatch, 7, 12, "PluginVariables", INVOKEKIND.INVOKE_PROPERTYGET, VarEnum.VT_BSTR, []);
 AddFunction(dispatch, 8, 12, "PluginVariables", INVOKEKIND.INVOKE_PROPERTYPUT, VarEnum.VT_VOID,
     [("value", VarEnum.VT_BSTR)], byRef: false);
+AddFunction(dispatch, 9, 13, "PluginOriginalFilePath", INVOKEKIND.INVOKE_PROPERTYGET, VarEnum.VT_BSTR, []);
+AddFunction(dispatch, 10, 13, "PluginOriginalFilePath", INVOKEKIND.INVOKE_PROPERTYPUT, VarEnum.VT_VOID,
+    [("value", VarEnum.VT_BSTR)], byRef: false);
 dispatch.LayOut();
 library.CreateTypeInfo("WinMergeScript", TYPEKIND.TKIND_COCLASS, out var coclass);
 coclass.SetGuid(new Guid("d4f1b0ba-447a-46b3-a253-9b5844df6a35"));

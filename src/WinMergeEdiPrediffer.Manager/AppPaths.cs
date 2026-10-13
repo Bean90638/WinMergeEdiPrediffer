@@ -7,6 +7,17 @@ internal static class AppPaths
     internal static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WinMergeEdiPrediffer");
     internal static string Backups => Path.Combine(DataDirectory, "backups");
     internal static string Payload => Path.Combine(AppContext.BaseDirectory, "Plugin");
+    internal static string WinMergeExecutable
+    {
+        get
+        {
+            var configured = Environment.GetEnvironmentVariable("WINMERGE_EDI_WINMERGE_PATH");
+            if (!string.IsNullOrWhiteSpace(configured)) return Path.GetFullPath(configured);
+            var bundled = Path.Combine(AppContext.BaseDirectory, "WinMerge", "WinMergeU.exe");
+            return File.Exists(bundled) ? bundled : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WinMerge", "WinMergeU.exe");
+        }
+    }
     internal static string DefaultPlugins => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WinMerge", "MergePlugins");
     internal static string Example => Path.Combine(AppContext.BaseDirectory, "profiles.example.json");
     internal static string DefaultConfiguration

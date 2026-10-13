@@ -4,13 +4,15 @@
 
 ## 1. 第一次使用
 
-電腦需有 **Windows x64、64 位元 WinMerge、.NET 10 Desktop Runtime x64 與 .NET 10 Runtime x64**。
+電腦需有 **Windows x64、支援原始路徑選組的 WinMerge 2.16.58.2 修正版、.NET 10 Desktop Runtime x64 與 .NET 10 Runtime x64**。
+
+官方原版 WinMerge 的單檔比對只傳入暫存路徑，無法保證依目錄選組。本版須搭配隨附修正版；原版執行中或指定的配套不符時，管理器會在套用前提示。建置與使用方式見 [WinMerge 修正版操作說明](docs/original-path-host.md)。
 
 1. 拿到已建置程式時，請保留整個程式資料夾，包含 `Plugin` 子資料夾。
 2. 雙擊 `WinMergeEdiPrediffer.Manager.exe`，按「開啟設定」載入交接的 `profiles.json`。
-3. 第一次套用前關閉 WinMerge，按「套用到 WinMerge」，再開啟 WinMerge 比對檔案。
+3. 第一次套用前關閉原版與修正版 WinMerge，按「套用到 WinMerge」，再開啟隨附的 WinMerge 修正版比對檔案。
 
-若只有原始碼，先安裝 **.NET SDK 10.0.401**、**Visual Studio C++ x64 建置工具**，在專案資料夾開啟 PowerShell 執行：
+若只有原始碼，先安裝 **.NET SDK 10.0.401**、**Visual Studio C++ x64 建置工具**（WinMerge 修正版另需 MFC 與 Windows SDK），在專案資料夾開啟 PowerShell 執行：
 
 ```powershell
 dotnet build .\WinMergeEdiPrediffer.slnx -c Release

@@ -1,0 +1,170 @@
+diff --git a/SetVersion.cmd b/SetVersion.cmd
+index 2f0dc0d..c028f90 100644
+--- a/SetVersion.cmd
++++ b/SetVersion.cmd
+@@ -2,7 +2,7 @@ set MAJOR=2
+ set MINOR=16
+ set REVISION=58
+ set PATCHLEVEL=2
+-set STRPRIVATEBUILD=""
++set STRPRIVATEBUILD="EDI Original Path API 1"
+ set YEAR=2026
+ set MONTH=08
+ 
+diff --git a/Src/CompareEngines/FullQuickCompare.cpp b/Src/CompareEngines/FullQuickCompare.cpp
+index c97d919..ef6b8a8 100644
+--- a/Src/CompareEngines/FullQuickCompare.cpp
++++ b/Src/CompareEngines/FullQuickCompare.cpp
+@@ -106,7 +106,7 @@ void FullQuickCompare::CompareFiles(DIFFITEM& di) const
+ 	for (nIndex = 0; nIndex < nDirs; nIndex++)
+ 	{
+ 	// Invoke prediff'ing plugins
+-		if (infoPrediffer && !m_diffFileData.Filepath_Transform(nIndex, bForceUTF8, encoding[nIndex], filepathUnpacked[nIndex], filepathTransformed[nIndex], filteredFilenames, *infoPrediffer))
++		if (infoPrediffer && !m_diffFileData.Filepath_Transform(nIndex, bForceUTF8, encoding[nIndex], filepathUnpacked[nIndex], tFiles[nIndex], filepathTransformed[nIndex], filteredFilenames, *infoPrediffer))
+ 			goto exitPrepAndCompare;
+ 	}
+ 
+diff --git a/Src/DiffFileData.cpp b/Src/DiffFileData.cpp
+index 8fc800c..4056c0d 100644
+--- a/Src/DiffFileData.cpp
++++ b/Src/DiffFileData.cpp
+@@ -126,7 +126,7 @@ void DiffFileData::Reset()
+  * caller has to DeleteFile filepathTransformed, if it differs from filepath
+  */
+ bool DiffFileData::Filepath_Transform(int target, bool bForceUTF8,
+-	const FileTextEncoding& encoding, const String& filepath, String& filepathTransformed,
++	const FileTextEncoding& encoding, const String& filepath, const String& originalFilePath, String& filepathTransformed,
+ 	const String& filteredFilenames, PrediffingInfo& infoPrediffer)
+ {
+ 	// third step : prediff (plugins)
+@@ -137,7 +137,7 @@ bool DiffFileData::Filepath_Transform(int target, bool bForceUTF8,
+ 	// if a prediffer fails, we consider it is not the good one, that's all
+ 	// FileTransform_Prediffing returns `false` only if the prediffer works, 
+ 	// but the data can not be saved to disk (no more place ??)
+-	if (!infoPrediffer.Prediffing(target, filepathTransformed, filteredFilenames, bMayOverwrite, { filepath }))
++	if (!infoPrediffer.Prediffing(target, filepathTransformed, filteredFilenames, bMayOverwrite, { filepath }, originalFilePath))
+ 		return false;
+ 
+ 	if ((encoding.m_unicoding && encoding.m_unicoding != ucr::UTF8) || bForceUTF8)
+diff --git a/Src/DiffFileData.h b/Src/DiffFileData.h
+index 3432878..0b0627f 100644
+--- a/Src/DiffFileData.h
++++ b/Src/DiffFileData.h
+@@ -33,7 +33,7 @@ struct DiffFileData
+ 	void Close() { Reset(); }
+ 	void SetDisplayFilepaths(const String& szTrueFilepath1, const String& szTrueFilepath2);
+ 
+-	bool Filepath_Transform(int target, bool bForceUTF8, const FileTextEncoding & encoding, const String & filepath, String & filepathTransformed,
++	bool Filepath_Transform(int target, bool bForceUTF8, const FileTextEncoding & encoding, const String & filepath, const String& originalFilePath, String & filepathTransformed,
+ 		const String& filteredFilenames, PrediffingInfo& infoPrediffer);
+ 
+ // Data (public)
+diff --git a/Src/DiffWrapper.cpp b/Src/DiffWrapper.cpp
+index 253cb9b..11eebb9 100644
+--- a/Src/DiffWrapper.cpp
++++ b/Src/DiffWrapper.cpp
+@@ -785,7 +785,8 @@ bool CDiffWrapper::RunFileDiff()
+ 
+ 			// this can only fail if the data can not be saved back (no more
+ 			// place on disk ???) What to do then ??
+-			if (m_infoPrediffer && !m_infoPrediffer->Prediffing(file, strFileTemp[file], m_sToFindPrediffer, m_bPathsAreTemp, { strFileTemp[file] }))
++			const String originalFilePath = file < m_originalFile.GetSize() ? m_originalFile[file] : String();
++			if (m_infoPrediffer && !m_infoPrediffer->Prediffing(file, strFileTemp[file], m_sToFindPrediffer, m_bPathsAreTemp, { strFileTemp[file] }, originalFilePath))
+ 			{
+ 				// display a message box
+ 				String sError = strutils::format_string2(
+diff --git a/Src/FileTransform.cpp b/Src/FileTransform.cpp
+index 45df454..ddffc9f 100644
+--- a/Src/FileTransform.cpp
++++ b/Src/FileTransform.cpp
+@@ -766,7 +766,7 @@ bool PrediffingInfo::GetPrediffPlugin(const String& filteredFilenames, bool bRev
+ 	return true;
+ }
+ 
+-bool PrediffingInfo::Prediffing(int target, String & filepath, const String& filteredText, bool bMayOverwrite, const std::vector<StringView>& variables)
++bool PrediffingInfo::Prediffing(int target, String & filepath, const String& filteredText, bool bMayOverwrite, const std::vector<StringView>& variables, const String& originalFilePath)
+ {
+ 	// no handler : return true
+ 	if (m_PluginPipeline.empty())
+@@ -801,6 +801,12 @@ bool PrediffingInfo::Prediffing(int target, String & filepath, const String& fil
+ 			if (!plugin::InvokePutPluginVariables(strutils::to_str(variables[0]), piScript))
+ 				return false;
+ 		}
++		// Always send the source identity, including an empty path for an unsaved document.
++		if (plugin->m_hasOriginalFilePathProperty)
++		{
++			if (!plugin::InvokePutPluginOriginalFilePath(originalFilePath, piScript))
++				return false;
++		}
+ 		if (plugin->m_hasArgumentsProperty)
+ 		{
+ 			if (!plugin::InvokePutPluginArguments(args.empty() ? plugin->m_arguments : MakeArguments(args, variables), piScript))
+diff --git a/Src/FileTransform.h b/Src/FileTransform.h
+index 49ea89f..533487c 100644
+--- a/Src/FileTransform.h
++++ b/Src/FileTransform.h
+@@ -165,7 +165,7 @@ public:
+ 	 * @note Event FILE_PREDIFF BUFFER_PREDIFF
+ 	 * Apply only the first correct handler
+ 	 */
+-	bool Prediffing(int target, String & filepath, const String& filteredText, bool bMayOverwrite, const std::vector<StringView>& variables);
++	bool Prediffing(int target, String & filepath, const String& filteredText, bool bMayOverwrite, const std::vector<StringView>& variables, const String& originalFilePath);
+ };
+ 
+ /**
+diff --git a/Src/Plugins.cpp b/Src/Plugins.cpp
+index da2e743..a982ca6 100644
+--- a/Src/Plugins.cpp
++++ b/Src/Plugins.cpp
+@@ -227,6 +227,7 @@ PluginInfo::PluginInfo()
+ 	, m_disabled(false)
+ 	, m_hasArgumentsProperty(false)
+ 	, m_hasVariablesProperty(false)
++	, m_hasOriginalFilePathProperty(false)
+ 	, m_hasPluginOnEventMethod(false)
+ 	, m_bAutomaticDefault(false)
+ {	
+@@ -649,6 +650,8 @@ int PluginInfo::MakeInfo(const String& scriptletFilepath, const String& name, ID
+ 
+ 	// get optional property PluginVariables
+ 	m_hasVariablesProperty = SearchScriptForDefinedProperties(L"PluginVariables");
++	// Optional source identity; PluginVariables keeps its existing processing-path semantics.
++	m_hasOriginalFilePathProperty = SearchScriptForDefinedProperties(L"PluginOriginalFilePath");
+ 
+ 	// get optional method PluginOnEvent
+ 	m_hasPluginOnEventMethod = SearchScriptForMethodName(L"PluginOnEvent");
+@@ -1696,6 +1699,14 @@ bool InvokePutPluginVariables(const String& vars, LPDISPATCH piScript)
+ 	return SUCCEEDED(h);
+ }
+ 
++bool InvokePutPluginOriginalFilePath(const String& originalFilePath, LPDISPATCH piScript)
++{
++	VARIANT path{ VT_BSTR };
++	std::wstring wpath = ucr::toUTF16(originalFilePath);
++	path.bstrVal = SysAllocStringLen(wpath.data(), static_cast<unsigned>(wpath.size()));
++	return SUCCEEDED(::safeInvokeW(piScript, nullptr, L"PluginOriginalFilePath", opPut[1], path));
++}
++
+ bool InvokePluginOnEvent(int eventType, LPDISPATCH piScript)
+ {
+ 	// argument wmobj
+diff --git a/Src/Plugins.h b/Src/Plugins.h
+index f90f282..d879ce4 100644
+--- a/Src/Plugins.h
++++ b/Src/Plugins.h
+@@ -77,6 +77,7 @@ public:
+ 	bool        m_disabled;
+ 	bool        m_hasArgumentsProperty;
+ 	bool        m_hasVariablesProperty;
++	bool        m_hasOriginalFilePathProperty;
+ 	bool        m_hasPluginOnEventMethod;
+ 	std::vector<FileFilterElementPtr> m_filters;
+ 	/// only for plugins with free function names (EDITOR_SCRIPT)
+@@ -269,6 +270,7 @@ bool InvokePutPluginArguments(const String& args, LPDISPATCH piScript);
+  * @brief Set value to the plugin "PluginVariables" property 
+  */
+ bool InvokePutPluginVariables(const String& args, LPDISPATCH piScript);
++bool InvokePutPluginOriginalFilePath(const String& originalFilePath, LPDISPATCH piScript);
+ 
+ /**
+  * @brief call the plugin "PluginOnEvent" method 
