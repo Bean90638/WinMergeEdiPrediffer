@@ -27,9 +27,9 @@ internal static class WinMergeIntegrationVerification
         }
         var configuration = new RuleConfiguration { Groups =
         [
-            new() { Id = "850", Name = "850", FilePattern = @"\\850\\.*\.edi$", Priority = 10, Rules =
+            new() { Id = "850", Name = "850", FilePattern = @"\\850\\.*\.edi$", Rules =
                 [new() { FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" }] },
-            new() { Id = "860", Name = "860", FilePattern = @"\\860\\.*\.edi$", Priority = 20, Rules =
+            new() { Id = "860", Name = "860", FilePattern = @"\\860\\.*\.edi$", Rules =
             [
                 new() { FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" },
                 new() { FindPattern = @"(^|~)(SE\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" }

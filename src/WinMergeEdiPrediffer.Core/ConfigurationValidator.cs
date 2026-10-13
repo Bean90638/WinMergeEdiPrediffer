@@ -6,10 +6,8 @@ public static class ConfigurationValidator
 {
     public static void Validate(RuleConfiguration configuration)
     {
-        if (configuration.SchemaVersion != 1) throw new InvalidOperationException("不支援的設定版本。");
+        if (configuration.SchemaVersion != 2) throw new InvalidOperationException("不支援的設定版本。");
         if (configuration.Groups is null) throw new InvalidOperationException("設定缺少 groups。");
-        if (configuration.Groups.Count(g => g.Enabled && g.IsDefault) > 1)
-            throw new InvalidOperationException("只能啟用一個預設規則組。");
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in configuration.Groups)
         {
@@ -18,7 +16,6 @@ public static class ConfigurationValidator
             if (string.IsNullOrWhiteSpace(group.Name)) throw new InvalidOperationException("規則組名稱不可空白。");
             if (string.IsNullOrWhiteSpace(group.FilePattern)) throw new InvalidOperationException($"「{group.Name}」的檔案路徑正則不可空白，任何檔案請填 .*。");
             ValidateExpression(group.FilePattern, $"{group.Name} / 檔案路徑正則");
-            if (group.IsDefault && group.FilePattern != ".*") throw new InvalidOperationException($"預設組「{group.Name}」的檔案路徑正則必須是 .*。");
             if (group.Rules is null) throw new InvalidOperationException($"「{group.Name}」缺少 rules。");
             var ruleIds = new HashSet<string>();
             foreach (var rule in group.Rules)

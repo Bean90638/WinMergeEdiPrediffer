@@ -10,8 +10,9 @@ internal sealed class MainForm : Form
     private bool loading;
     private bool dirty;
     private ReplacementRule? editingRule;
-    private readonly DataGridView groups = Grid("EDI 規則組");
-    private readonly DataGridView rules = Grid("組內替換規則");
+    private RuleGroup? displayedGroup;
+    private readonly RuleGridView groups = new() { AccessibleName = "EDI 規則組" };
+    private readonly RuleGridView rules = new() { AccessibleName = "組內替換規則" };
     private readonly TextBox find = Editor("尋找正則");
     private readonly TextBox replace = Editor("取代內容");
     private readonly ToolStripStatusLabel status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
@@ -32,9 +33,7 @@ internal sealed class MainForm : Form
         toolbar.Items.Add(new ToolStripSeparator());
         Tool(toolbar, "測試預覽 (Ctrl+T)", Preview); Tool(toolbar, "匯出 COM 外掛", Export); Tool(toolbar, "套用到 WinMerge", Install);
         Column(groups, nameof(RuleGroup.Enabled), "啟用", 60, true);
-        Column(groups, nameof(RuleGroup.Name), "組名稱", 170);
-        Column(groups, nameof(RuleGroup.Priority), "優先序（小數字先）", 155);
-        Column(groups, nameof(RuleGroup.IsDefault), "預設組", 75, true);
+        Column(groups, nameof(RuleGroup.Name), "組名稱（由上往下比對）", 280);
         Column(groups, nameof(RuleGroup.FilePattern), "完整路徑＋檔名正則（預設 .*）", 500, fill: true);
         Column(rules, nameof(ReplacementRule.Enabled), "啟用", 60, true);
         Column(rules, nameof(ReplacementRule.Name), "規則名稱（由上往下執行）", 260);
@@ -48,13 +47,13 @@ internal sealed class MainForm : Form
             new RowStyle(SizeType.Absolute, 26), new RowStyle(SizeType.Percent, 44), new RowStyle(SizeType.Absolute, 42),
             new RowStyle(SizeType.Percent, 56), new RowStyle(SizeType.Absolute, 42), new RowStyle(SizeType.Absolute, 145), new RowStyle(SizeType.Absolute, 52)
         }) table.RowStyles.Add(style);
-        table.Controls.Add(new Label { Text = "多組 EDI：優先序小的專屬組先處理；預設組最後；每個檔案只套用第一個命中的組。", Dock = DockStyle.Fill }, 0, 0);
+        table.Controls.Add(new Label { Text = "拖曳左側 ≡ 調整組與規則順序；組由上往下比對，只套用第一個命中組。路徑 .* 的兜底組請放最後。", Dock = DockStyle.Fill }, 0, 0);
         table.Controls.Add(groups, 0, 1);
         var groupButtons = Buttons();
         groupButtons.Controls.AddRange([Button("新增組 (&G)", AddGroup), Button("複製組", DuplicateGroup), Button("刪除組", DeleteGroup)]);
         table.Controls.Add(groupButtons, 0, 2); table.Controls.Add(rules, 0, 3);
         var ruleButtons = Buttons();
-        ruleButtons.Controls.AddRange([Button("新增規則 (&R)", AddRule), Button("複製規則", DuplicateRule), Button("刪除規則", DeleteRule), Button("上移", () => MoveRule(-1)), Button("下移", () => MoveRule(1))]);
+        ruleButtons.Controls.AddRange([Button("新增規則 (&R)", AddRule), Button("複製規則", DuplicateRule), Button("刪除規則", DeleteRule)]);
         table.Controls.Add(ruleButtons, 0, 4);
         var editors = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 2 };
         editors.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); editors.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -62,28 +61,23 @@ internal sealed class MainForm : Form
         editors.Controls.Add(new Label { Text = "所選規則：尋找", Dock = DockStyle.Fill }, 0, 0);
         editors.Controls.Add(new Label { Text = "所選規則：取代（正則可用 $1、${name}）", Dock = DockStyle.Fill }, 1, 0);
         editors.Controls.Add(find, 0, 1); editors.Controls.Add(replace, 1, 1); table.Controls.Add(editors, 0, 5);
-        table.Controls.Add(new Label { Text = "新增組的路徑預設 .*。Windows 路徑請用 \\\\；路徑與內容正則均使用 C#/.NET 語法，內容保留 CR/LF。\n修改後按「套用到 WinMerge」；規則熱更新並刷新目前比對，WinMerge 與擴充功能視窗都可保持開啟。", Dock = DockStyle.Fill }, 0, 6);
+        table.Controls.Add(new Label { Text = "點選儲存格後 Ctrl+C 只複製該欄純文字。Windows 路徑請用 \\\\；路徑與內容正則均使用 C#/.NET 語法，內容保留 CR/LF。\n修改後按「套用到 WinMerge」；規則熱更新並刷新目前比對，WinMerge 與擴充功能視窗都可保持開啟。", Dock = DockStyle.Fill }, 0, 6);
         var statusBar = new StatusStrip(); statusBar.Items.Add(status);
         Controls.Add(table); Controls.Add(statusBar); Controls.Add(toolbar);
-        groups.SelectionChanged += (_, _) => { if (!loading) BindRules(); };
+        groups.SelectionChanged += (_, _) => { if (!loading && !ReferenceEquals(SelectedGroup, displayedGroup)) BindRules(); };
         rules.SelectionChanged += (_, _) => ShowRule();
+        groups.RowMoveRequested += (_, e) => Run(() => ReorderGroup(e.SourceIndex, e.DestinationIndex));
+        rules.RowMoveRequested += (_, e) => Run(() => ReorderRule(e.SourceIndex, e.DestinationIndex));
         foreach (var grid in new[] { groups, rules })
         {
             grid.CellValueChanged += (_, _) => { if (!loading) { Touch(); if (grid == rules) ShowRule(); } };
             grid.CurrentCellDirtyStateChanged += (_, _) => { if (grid.IsCurrentCellDirty) grid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
-            grid.DataError += (_, e) => { e.ThrowException = false; status.Text = "欄位格式有誤；優先序請填整數。"; };
+            grid.DataError += (_, e) => { e.ThrowException = false; status.Text = "欄位格式有誤，請檢查輸入內容。"; };
         }
         find.TextChanged += (_, _) => EditRule(); replace.TextChanged += (_, _) => EditRule();
         FormClosing += (_, e) => { if (!ConfirmPending()) e.Cancel = true; };
         BindGroups(); UpdateStatus();
     }
-    private static DataGridView Grid(string name) => new RuleGridView()
-    {
-        Dock = DockStyle.Fill, AccessibleName = name, AutoGenerateColumns = false, AllowUserToAddRows = false,
-        AllowUserToDeleteRows = false, AllowUserToOrderColumns = false, MultiSelect = false,
-        SelectionMode = DataGridViewSelectionMode.CellSelect, RowHeadersWidth = 28,
-        BackgroundColor = SystemColors.Window, EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2
-    };
     private static TextBox Editor(string name) => new() { Dock = DockStyle.Fill, Multiline = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = new Font("Consolas", 11), AccessibleName = name };
     private static FlowLayoutPanel Buttons() => new() { Dock = DockStyle.Fill, WrapContents = false };
     private static void Column(DataGridView grid, string property, string title, int width, bool check = false, bool fill = false)
@@ -111,7 +105,7 @@ internal sealed class MainForm : Form
     }
     private void BindRules(int selected = 0)
     {
-        loading = true; rules.DataSource = new BindingList<ReplacementRule>(SelectedGroup?.Rules ?? []);
+        loading = true; displayedGroup = SelectedGroup; rules.DataSource = new BindingList<ReplacementRule>(displayedGroup?.Rules ?? []);
         if (rules.Rows.Count > 0) rules.CurrentCell = rules.Rows[Math.Clamp(selected, 0, rules.Rows.Count - 1)].Cells[1];
         loading = false; ShowRule();
     }
@@ -133,7 +127,7 @@ internal sealed class MainForm : Form
     {
         if (SelectedGroup is not { } group) return;
         var copy = ConfigurationJson.Deserialize(ConfigurationJson.Serialize(new RuleConfiguration { Groups = [group] })).Groups[0];
-        copy.Id = Guid.NewGuid().ToString("N"); copy.Name += "（複本）"; copy.IsDefault = false;
+        copy.Id = Guid.NewGuid().ToString("N"); copy.Name += "（複本）";
         configuration.Groups.Add(copy); BindGroups(configuration.Groups.Count - 1); Touch();
     }
     private void DeleteGroup()
@@ -156,12 +150,21 @@ internal sealed class MainForm : Form
         if (SelectedGroup is not { } group || SelectedRule is not { } rule || MessageBox.Show(this, $"刪除「{rule.Name}」？", "刪除規則", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
         group.Rules.Remove(rule); BindRules(); Touch();
     }
-    private void MoveRule(int direction)
+    private void ReorderGroup(int source, int target)
     {
-        if (SelectedGroup is not { } group || SelectedRule is not { } rule) return;
-        var index = group.Rules.IndexOf(rule); var target = index + direction;
-        if (target < 0 || target >= group.Rules.Count) return;
-        group.Rules.RemoveAt(index); group.Rules.Insert(target, rule); BindRules(target); Touch();
+        if (source == target || target < 0 || target >= configuration.Groups.Count) return;
+        if (!groups.EndEdit() || !rules.EndEdit()) throw new InvalidOperationException("請先完成目前欄位的編輯。");
+        var group = configuration.Groups[source];
+        var selectedRule = rules.CurrentRow?.Index ?? 0;
+        configuration.Groups.RemoveAt(source); configuration.Groups.Insert(target, group);
+        BindGroups(target); BindRules(selectedRule); Touch();
+    }
+    private void ReorderRule(int source, int target)
+    {
+        if (SelectedGroup is not { } group || source == target || target < 0 || target >= group.Rules.Count) return;
+        if (!rules.EndEdit()) throw new InvalidOperationException("請先完成目前欄位的編輯。");
+        var rule = group.Rules[source];
+        group.Rules.RemoveAt(source); group.Rules.Insert(target, rule); BindRules(target); Touch();
     }
     private bool Save(bool saveAs = false)
     {
@@ -184,7 +187,7 @@ internal sealed class MainForm : Form
     private void NewConfiguration()
     {
         if (!ConfirmPending()) return;
-        configuration = new RuleConfiguration { Groups = [new() { Name = "預設規則組", IsDefault = true }] }; BindGroups(); Touch();
+        configuration = new RuleConfiguration { Groups = [new() { Name = "其他檔案" }] }; BindGroups(); Touch();
     }
     private void OpenConfiguration()
     {

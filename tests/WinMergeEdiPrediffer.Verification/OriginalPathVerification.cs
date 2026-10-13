@@ -10,15 +10,15 @@ internal static class OriginalPathVerification
         var root = Path.GetFullPath(Path.Combine("work", "original-path-verification-" + Guid.NewGuid().ToString("N")));
         var configuration = new RuleConfiguration { Groups =
         [
-            new() { Id = "fallback", Name = "Fallback", IsDefault = true, Priority = 0,
-                Rules = [new() { FindPattern = "CANARY", Replacement = "FALLBACK" }] },
-            new() { Id = "850", Name = "850 directory", Priority = 10, FilePattern = @"\\850\\.*\.edi$", Rules =
+            new() { Id = "850", Name = "850 directory", FilePattern = @"\\850\\.*\.edi$", Rules =
                 [new() { FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" }] },
-            new() { Id = "860", Name = "860 directory", Priority = 20, FilePattern = @"\\860\\.*\.edi$", Rules =
+            new() { Id = "860", Name = "860 directory", FilePattern = @"\\860\\.*\.edi$", Rules =
             [
                 new() { FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" },
                 new() { FindPattern = @"(^|~)(SE\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" }
-            ] }
+            ] },
+            new() { Id = "fallback", Name = "Fallback",
+                Rules = [new() { FindPattern = "CANARY", Replacement = "FALLBACK" }] }
         ] };
         ExportResult Export() => PluginExporter.Export(configuration, Path.Combine(root, "source.json"), payload,
             root, Environment.ProcessPath!, Path.Combine(root, "backups"));
@@ -72,7 +72,7 @@ internal static class OriginalPathVerification
         check(Fails(() => client.Prediff(text850)), "a new processing-path setter starts a fresh source context");
         check(client.Prediff(text850, fullPath: path850, processingPath: @"D:\EDI\new\860\misleading.edi") == editor850,
             "processing filename cannot override original source group");
-        configuration.Groups[1].Rules[0].Replacement = "$1$2<HOT>";
+        configuration.Groups[0].Rules[0].Replacement = "$1$2<HOT>";
         var updated = Export();
         check(updated.RulesOnlyUpdate && client.Prediff(text850, fullPath: path850, processingPath: temporary).Text.Contains("<HOT>"),
             "existing COM object reads hot rules while source and processing paths differ");

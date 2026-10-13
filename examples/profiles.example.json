@@ -1,12 +1,10 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "groups": [
     {
       "id": "edi850",
       "name": "EDI 850",
       "enabled": true,
-      "priority": 10,
-      "isDefault": false,
       "filePattern": "^D:\\\\ProjectGit\\\\Brad\\\\EDI\\\\(old|new)\\\\A_850\\.edi$",
       "rules": [
         {
@@ -24,8 +22,6 @@
       "id": "edi860",
       "name": "EDI 860",
       "enabled": true,
-      "priority": 20,
-      "isDefault": false,
       "filePattern": "^D:\\\\ProjectGit\\\\Brad\\\\EDI\\\\(old|new)\\\\A_860\\.edi$",
       "rules": [
         {
@@ -41,10 +37,8 @@
     },
     {
       "id": "default",
-      "name": "預設規則組",
+      "name": "其他檔案",
       "enabled": true,
-      "priority": 999,
-      "isDefault": true,
       "filePattern": ".*",
       "rules": []
     }

@@ -69,7 +69,7 @@ public static class PluginExporter
         };
         if (old is not null && IsLiveDeployment(old, destination, payload, signature))
         {
-            // 新增／移除組、路徑與優先序變更也只發布 JSON；固定入口與外掛資訊不變。
+            // 新增／移除組、路徑與排列順序變更也只發布 JSON；固定入口與外掛資訊不變。
             var backup = Backup(old, destination, backupRoot, manifest.GenerationId);
             var rulesPath = Path.Combine(destination, LiveRulesFilename);
             var oldRules = File.ReadAllText(rulesPath);

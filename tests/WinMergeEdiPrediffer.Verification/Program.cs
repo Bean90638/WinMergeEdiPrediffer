@@ -15,19 +15,19 @@ var configuration = new RuleConfiguration
 {
     Groups =
     [
-        new() { Id = "fallback", IsDefault = true, Priority = 0, Name = "Default" },
-        new() { Id = "850", Priority = 10, FilePattern = @"\\A_850\.edi$", Name = "850", Rules =
+        new() { Id = "850", FilePattern = @"\\A_850\.edi$", Name = "850", Rules =
         [new() { Name = "ST02", FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" }] },
-        new() { Id = "860", Priority = 20, FilePattern = @"\\A_860\.edi$", Name = "860", Rules =
-        [new() { Name = "ST02", FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<860>" }] }
+        new() { Id = "860", FilePattern = @"\\A_860\.edi$", Name = "860", Rules =
+        [new() { Name = "ST02", FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<860>" }] },
+        new() { Id = "fallback", Name = "Default" }
     ]
 };
 ConfigurationValidator.Validate(configuration);
 Check(RuleEngine.SelectGroup(configuration, @"D:\EDI\old\A_850.edi")?.Id == "850", "specific group before fallback");
 Check(RuleEngine.SelectGroup(configuration, @"D:\EDI\new\a_860.EDI")?.Id == "860", "case insensitive original full path");
 Check(RuleEngine.SelectGroup(configuration, @"D:\other.txt")?.Id == "fallback", "default matches any file");
-Check(RuleEngine.Apply(configuration.Groups[1], "ST*850*0001~SE*16*0001~") == "ST*850*<IGNORE>~SE*16*0001~", "ignore ST02 and preserve ST01/SE02");
-Check(RuleEngine.Apply(configuration.Groups[1], "ST*860*0001~") == "ST*860*<IGNORE>~", "ST01 remains visible");
+Check(RuleEngine.Apply(configuration.Groups[0], "ST*850*0001~SE*16*0001~") == "ST*850*<IGNORE>~SE*16*0001~", "ignore ST02 and preserve ST01/SE02");
+Check(RuleEngine.Apply(configuration.Groups[0], "ST*860*0001~") == "ST*860*<IGNORE>~", "ST01 remains visible");
 var sequence = new RuleGroup { Rules =
 [
     new() { FindPattern = "A", Replacement = "B" }, new() { FindPattern = "B", Replacement = "C" },
@@ -48,13 +48,13 @@ Check(RuleEngine.Apply(sequence, "A\r\nA") == "A\r\nA", "rules cannot merge sepa
 sequence.Rules = [new() { Name = "first", FindPattern = "A", Replacement = "B" }, new() { Name = "second", FindPattern = "B", Replacement = "C" }];
 var steps = RuleEngine.Preview(sequence, "A");
 Check(steps.Count == 2 && steps[0].Text == "B" && steps[1].Text == "C" && steps.All(s => s.Changed), "preview shows each ordered rule result");
-configuration.Groups[1].Enabled = false;
-Check(RuleEngine.SelectGroup(configuration, @"D:\EDI\old\A_850.edi")?.IsDefault == true, "disabled specific group falls back");
-configuration.Groups[1].Enabled = true;
+configuration.Groups[0].Enabled = false;
+Check(RuleEngine.SelectGroup(configuration, @"D:\EDI\old\A_850.edi")?.Id == "fallback", "disabled specific group falls back");
+configuration.Groups[0].Enabled = true;
 var directoryGroups = new RuleConfiguration { Groups =
 [
-    new() { Name = "old directory", Priority = 10, FilePattern = @"\\old\\A\.edi$" },
-    new() { Name = "new directory", Priority = 20, FilePattern = @"\\new\\A\.edi$" }
+    new() { Name = "old directory", FilePattern = @"\\old\\A\.edi$" },
+    new() { Name = "new directory", FilePattern = @"\\new\\A\.edi$" }
 ] };
 Check(RuleEngine.SelectGroup(directoryGroups, @"D:\EDI\old\A.edi")?.Name == "old directory" && RuleEngine.SelectGroup(directoryGroups, @"D:\EDI\new\A.edi")?.Name == "new directory", "same filename selects by original directory");
 var invalid = new RuleConfiguration { Groups = [new() { Name = "invalid group", Rules = [new() { Name = "invalid rule", FindPattern = "[" }] }] };
@@ -63,6 +63,28 @@ try { ConfigurationValidator.Validate(invalid); }
 catch (InvalidOperationException ex) { errorHasLocation = ex.Message.Contains("invalid group / invalid rule"); }
 Check(errorHasLocation, "invalid regex identifies group and rule");
 Check(ConfigurationJson.Deserialize(ConfigurationJson.Serialize(configuration)).Groups.Count == 3, "JSON round trip");
+var fallback = configuration.Groups[2];
+configuration.Groups.Remove(fallback); configuration.Groups.Insert(0, fallback);
+Check(RuleEngine.SelectGroup(configuration, @"D:\EDI\old\A_850.edi")?.Id == "fallback", "catch-all follows displayed order without special treatment");
+configuration.Groups.Remove(fallback); configuration.Groups.Add(fallback);
+const string legacyJson = """
+    {"schemaVersion":1,"groups":[
+      {"id":"fallback","name":"Fallback","isDefault":true,"priority":0},
+      {"id":"last","name":"Last","priority":20},
+      {"id":"first","name":"First","priority":10},
+      {"id":"tie","name":"Tie","priority":10},
+      {"id":"disabled","name":"Disabled","priority":5,"enabled":false}
+    ]}
+    """;
+var migrated = ConfigurationJson.Deserialize(legacyJson);
+Check(migrated.SchemaVersion == 2 && migrated.Groups.Select(g => g.Id).SequenceEqual(["disabled", "first", "tie", "last", "fallback"]), "legacy priority and fallback migrate once, including disabled and tied groups");
+Check(RuleEngine.SelectGroup(migrated, @"D:\test.edi")?.Id == "first", "migrated legacy configuration preserves first enabled match");
+migrated.Groups.Reverse();
+var savedOrder = ConfigurationJson.Serialize(migrated);
+Check(!savedOrder.Contains("priority") && !savedOrder.Contains("isDefault") && ConfigurationJson.Deserialize(savedOrder).Groups.Select(g => g.Id).SequenceEqual(migrated.Groups.Select(g => g.Id)), "saved display order round trips without legacy fields or reordering");
+var legacyLive = JsonSerializer.Deserialize<LivePluginConfiguration>("{\"configuration\":" + legacyJson + "}", ConfigurationJson.Options)!;
+Check(legacyLive.Configuration.Groups[1].Id == "first" && legacyLive.Configuration.SchemaVersion == 2, "nested legacy COM configuration uses identical migration");
+ManagerVerification.Run(Check);
 
 var payloadArgument = Array.IndexOf(args, "--com-payload");
 if (payloadArgument >= 0)

@@ -18,7 +18,7 @@ internal static class DeploymentVerification
         var before = initial.Manifest.OwnedFiles.Select(file => Path.Combine(destination, file))
             .Where(File.Exists).Append(manifest).ToDictionary(file => file, File.ReadAllBytes);
         var updated = ConfigurationJson.Deserialize(ConfigurationJson.Serialize(configuration));
-        updated.Groups[1].Rules[0].Replacement = "$1$2<UPDATED>";
+        updated.Groups[0].Rules[0].Replacement = "$1$2<UPDATED>";
         var attributes = File.GetAttributes(manifest);
         var failed = false;
         try

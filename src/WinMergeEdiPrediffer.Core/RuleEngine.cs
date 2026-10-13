@@ -8,8 +8,7 @@ public static class RuleEngine
     public static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(2);
 
     public static IReadOnlyList<RuleGroup> OrderedGroups(RuleConfiguration configuration) =>
-        configuration.Groups.Where(g => g.Enabled).OrderBy(g => g.IsDefault)
-            .ThenBy(g => g.Priority).ThenBy(g => configuration.Groups.IndexOf(g)).ToList();
+        configuration.Groups.Where(g => g.Enabled).ToList();
 
     public static RuleGroup? SelectGroup(RuleConfiguration configuration, string fullPath) =>
         OrderedGroups(configuration).FirstOrDefault(g => IsPathMatch(g, fullPath));

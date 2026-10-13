@@ -40,7 +40,7 @@ internal static class RouterVerification
         check(Directory.GetFiles(root, "*.dll").Select(Path.GetFileName).SequenceEqual(new[] { PluginExporter.RouterName + ".comhost.dll" }), "one fixed COM entry point for all groups");
         check(exported.Manifest.PathRouting && exported.Manifest.Groups.Count == 3 && exported.Manifest.Groups.All(g => g.PluginName == PluginExporter.RouterName), "logical groups share one routing deployment");
         check(exported.Manifest.OwnedFiles.Count == 7 && exported.Manifest.OwnedFiles.All(f => File.Exists(Path.Combine(root, f))), "complete standard .NET COM deployment and shared snapshot");
-        File.WriteAllText(Path.Combine(payload, PluginExporter.PayloadName + ".profile.json"), JsonSerializer.Serialize(new PluginProfile { Group = configuration.Groups[1] }, ConfigurationJson.Options));
+        File.WriteAllText(Path.Combine(payload, PluginExporter.PayloadName + ".profile.json"), JsonSerializer.Serialize(new PluginProfile { Group = configuration.Groups[0] }, ConfigurationJson.Options));
         using (var baseline = new NativeComClient(Path.Combine(payload, PluginExporter.PayloadName + ".comhost.dll")))
         {
             check((string?)baseline.Property("PluginEvent") == "BUFFER_PREDIFF", "unrenamed COM DLL and legacy profile load");
@@ -71,41 +71,41 @@ internal static class RouterVerification
         {
             ExportResult ApplyLive() => Export(true);
             void Hot(ExportResult change, string name) => check(change.RulesOnlyUpdate && !change.ReloadPluginsRequired, name);
-            configuration.Groups[1].Rules[0].Replacement = "$1$2<LIVE>";
+            configuration.Groups[0].Rules[0].Replacement = "$1$2<LIVE>";
             Hot(ApplyLive(), "rules update with deployed binaries and profile locked");
             check(client.Prediff("ST*850*0001~", wrapVariants: true, fullPath: path850).Text == "ST*850*<LIVE>~", "already-loaded COM object reads new rules");
-            configuration.Groups[1].Enabled = false;
+            configuration.Groups[0].Enabled = false;
             Hot(ApplyLive(), "disable group without reload");
             check(!client.Prediff("ST*850*0001~", fullPath: path850).Changed, "disabled group immediately falls back");
-            configuration.Groups[1].Enabled = true;
+            configuration.Groups[0].Enabled = true;
             Hot(ApplyLive(), "reenable group without reload");
             check(client.Prediff("ST*850*0001~", fullPath: path850).Text.Contains("<LIVE>"), "reenabled group immediately processes content");
-            configuration.Groups[1].FilePattern = @"\\renamed\.edi$";
+            configuration.Groups[0].FilePattern = @"\\renamed\.edi$";
             Hot(ApplyLive(), "path changes without reload");
             check(!client.Prediff("ST*850*0001~", fullPath: path850).Changed && client.Prediff("ST*850*0001~", fullPath: @"D:\renamed.edi").Text.Contains("<LIVE>"), "live path changes affect selection");
-            configuration.Groups[1].FilePattern = @"\\A_850\.edi$";
-            var competitor = new RuleGroup { Id = "competitor", Name = "competitor", Priority = 5, FilePattern = @"\\A_850\.edi$", Rules = [new() { FindPattern = "ST", Replacement = "TEST" }] };
-            configuration.Groups.Add(competitor);
+            configuration.Groups[0].FilePattern = @"\\A_850\.edi$";
+            var competitor = new RuleGroup { Id = "competitor", Name = "competitor", FilePattern = @"\\A_850\.edi$", Rules = [new() { FindPattern = "ST", Replacement = "TEST" }] };
+            configuration.Groups.Insert(0, competitor);
             Hot(ApplyLive(), "add overlapping group without loading another DLL");
-            check(client.Prediff("ST*850*0001~", fullPath: path850).Text == "TEST*850*0001~", "higher priority wins without merging rules");
-            competitor.Priority = 10;
+            check(client.Prediff("ST*850*0001~", fullPath: path850).Text == "TEST*850*0001~", "first displayed matching group wins without merging rules");
+            configuration.Groups.Remove(competitor); configuration.Groups.Insert(1, competitor);
             ApplyLive();
-            check(client.Prediff("ST*850*0001~", fullPath: path850).Text.Contains("<LIVE>"), "equal priority uses row order");
-            competitor.Priority = 30;
-            Hot(ApplyLive(), "priority changes without reload");
-            check(client.Prediff("ST*850*0001~", fullPath: path850).Text.Contains("<LIVE>"), "priority change immediately selects earlier group");
+            check(client.Prediff("ST*850*0001~", fullPath: path850).Text.Contains("<LIVE>"), "moving group down immediately uses displayed order");
+            configuration.Groups.Remove(competitor); configuration.Groups.Insert(0, competitor);
+            Hot(ApplyLive(), "display order changes without reload");
+            check(client.Prediff("ST*850*0001~", fullPath: path850).Text == "TEST*850*0001~", "moving group back up immediately changes selection");
             configuration.Groups.Remove(competitor);
             Hot(ApplyLive(), "delete group without deleting a DLL");
-            var test = new RuleGroup { Id = "Test", Name = "Test", Priority = 5, FilePattern = @"\\Test\.edi$", Rules =
+            var test = new RuleGroup { Id = "Test", Name = "Test", FilePattern = @"\\Test\.edi$", Rules =
                 [new() { FindPattern = "X", Replacement = "Y" }, new() { FindPattern = "Y", Replacement = "Z" }] };
-            configuration.Groups.Add(test);
+            configuration.Groups.Insert(0, test);
             Hot(ApplyLive(), "add multi-rule group without loading another DLL");
             check(client.Prediff("X\r\n", fullPath: @"D:\Test.edi").Text == "Z\r\n" && Directory.GetFiles(root, "*.dll").Length == 1, "new group executes ordered rules through existing object");
             configuration.Groups.Remove(test);
             var removed = ApplyLive();
             Hot(removed, "remove multi-rule group without reload");
             check(removed.Manifest.RetiredGroups.Count == 0 && !client.Prediff("X", fullPath: @"D:\Test.edi").Changed, "deleted group stops matching without obsolete DLL entries");
-            configuration.Groups.Add(test);
+            configuration.Groups.Insert(0, test);
             Hot(ApplyLive(), "re-add group through existing deployment");
             check(client.Prediff("X", fullPath: @"D:\Test.edi").Text == "Z", "re-added group works with original COM object");
             var snapshotPath = Path.Combine(root, PluginExporter.LiveRulesFilename);
