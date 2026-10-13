@@ -1,5 +1,6 @@
 using System.Drawing.Imaging;
 using System.Reflection;
+using System.Text;
 using WinMergeEdiPrediffer.Core;
 using WinMergeEdiPrediffer.Manager;
 
@@ -96,5 +97,50 @@ internal static class ManagerVerification
         check(RuleEngine.Apply(bound.Groups[0], "X") == "Z", "rule drop downward executes every enabled rule in displayed order");
         check(Drag(groups, 0, rules, 0, false).Effect == DragDropEffects.None && bound.Groups.Count == 2, "cross-grid drop is rejected");
         Snapshot(manager, Path.Combine(root, "manager.png"));
+
+        var previewConfiguration = new RuleConfiguration { Groups = [new() { Name = "ST02", Rules =
+            [new() { Name = "忽略 ST02", FindPattern = @"(^|~)(ST\*[^*~\r\n]+\*)[^*~\r\n]*", Replacement = "$1$2<IGNORE>" }] }] };
+        using var preview = new PreviewForm(previewConfiguration);
+        preview.ShowInTaskbar = false; preview.Opacity = 0;
+        preview.Show();
+        preview.PerformLayout();
+        var input = Field<PreviewTextBox>(preview, "input");
+        var output = Field<PreviewTextBox>(preview, "output");
+        _ = input.Handle; _ = output.Handle;
+        foreach (var (name, text) in new[]
+        {
+            ("CRLF", "ST*860*0001~\r\nSE*16*0001~\r\n\r\n"),
+            ("LF", "ST*860*0001~\nSE*16*0001~\n\n"),
+            ("CR", "ST*860*0001~\rSE*16*0001~\r\r"),
+            ("mixed", "ST*860*0001~\r\nSE*16*0001~\nBEG*DATA~\r")
+        })
+        {
+            var expected = text.Replace("0001~", "<IGNORE>~", StringComparison.Ordinal);
+            // ST02 規則不取代 SE02。
+            expected = expected.Replace("SE*16*<IGNORE>~", "SE*16*0001~", StringComparison.Ordinal);
+            var edi = Path.Combine(root, name + ".edi");
+            File.WriteAllText(edi, text, new UTF8Encoding(false));
+            var original = File.ReadAllBytes(edi);
+            preview.LoadFile(edi);
+            check(input.Content == text && output.Content == expected && File.ReadAllBytes(edi).SequenceEqual(original), $"preview file load preserves {name} content and source file");
+            check(input.GetPositionFromCharIndex(input.Text.IndexOf("SE", StringComparison.Ordinal)).Y > input.GetPositionFromCharIndex(0).Y
+                && output.GetPositionFromCharIndex(output.Text.IndexOf("SE", StringComparison.Ordinal)).Y > output.GetPositionFromCharIndex(0).Y,
+                $"preview visibly renders {name} lines in input and output");
+            output.SelectAll();
+            check(output.SelectedContent == expected, $"preview selection preserves original {name} line endings");
+            input.Content = ""; input.PasteContent(text); Invoke(preview, "Apply");
+            check(input.Content == text && output.Content == expected, $"preview paste preserves {name} and applies rules");
+            input.Select(0, 2); input.SelectedText = "GS";
+            check(input.Content == "GS" + text[2..], $"editing preview retains untouched {name} line endings");
+        }
+        input.Content = "A\nB\rC\r\nD";
+        input.Select(input.Text.IndexOf('B'), 1); input.PasteContent("X\rY\n");
+        check(input.Content == "A\nX\rY\n\rC\r\nD", "paste into selected text retains surrounding mixed line endings");
+        input.Undo();
+        check(input.Content == "A\nB\rC\r\nD", "undo paste restores original mixed line endings");
+        input.Undo();
+        check(input.Content == "A\nX\rY\n\rC\r\nD", "redo paste restores pasted mixed line endings");
+        preview.LoadFile(Path.Combine(root, "LF.edi"));
+        Snapshot(preview, Path.Combine(root, "preview.png"));
     }
 }

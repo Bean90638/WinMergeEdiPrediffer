@@ -23,6 +23,7 @@
 
 - 輸入測試路徑，顯示命中規則組。
 - 輸入 EDI 文字，顯示逐條規則的替換結果。
+- 載入與貼上的 CRLF、LF、CR 及混合換行都分行顯示，預覽引擎與複製仍保留原始換行。
 - 內容正則預覽與 COM DLL 共用 C#/.NET 規則引擎，逐行取代並保留 CR/LF。
 - 路徑與內容正則使用 C#/.NET；選組路徑由 WinMerge 修正版的 PluginOriginalFilePath 提供；PluginVariables 保持既有處理路徑語意，須實測來源與暫存路徑。
 - 只有一個固定 C# COM host；在 C# 內選組，每次呼叫讀取已套用的共用 JSON。

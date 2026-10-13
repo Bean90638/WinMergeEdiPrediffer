@@ -83,5 +83,6 @@ Start-Process .\src\WinMergeEdiPrediffer.Manager\bin\Release\net10.0-windows\Win
 - **改了沒生效：** 確認組與規則已啟用、按過「套用到 WinMerge」，再按 F5。其他比對分頁需切換後各按 F5；自動刷新支援 WinMerge 2.16.58.2。
 - **要求關閉 WinMerge：** 升級 DLL 或修復安裝時需關閉一次；日常改組與規則不需重開，擴充功能視窗也可保持開啟。
 - **外掛清單只有一個 EDI 外掛：** 正常，多個組都在管理器設定。
+- **測試資料有換行：** 預覽支援載入與貼上的 CRLF、LF、CR 及混合換行；原始內容與逐步結果均分行顯示，複製時保留原始換行格式。原始檔案不會被寫入。
 - **交接或搬動：** 保留 `profiles.json` 與整個程式資料夾；搬到新位置後重新套用。設定與安裝備份位於 `%APPDATA%\WinMergeEdiPrediffer\backups`，請保留。
 - **停止使用：** 關閉管理器即可；已套用的規則仍會供 WinMerge 使用。
