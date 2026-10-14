@@ -9,14 +9,15 @@ internal static class WinMergeIntegrationVerification
 {
     public static void Run(string executable, string payload, Action<bool, string> check, string? fixtureRoot = null)
     {
-        check(WinMergeHostSupport.IsSupported(executable), "WinMerge executable advertises original source path API 1");
+        check(WinMergeHostSupport.IsSupported(executable), "integration uses official WinMerge 2.16.58.2");
         var root = Path.GetFullPath(Path.Combine("work", "winmerge-integration-" + Guid.NewGuid().ToString("N")));
         var runtime = Path.Combine(root, "runtime");
         Directory.CreateDirectory(runtime);
         var isolatedExe = Path.Combine(runtime, "WinMergeU.exe");
         File.Copy(executable, isolatedExe);
+        check(FileVersionInfo.GetVersionInfo(executable).PrivateBuild != "EDI Original Path API 1", "integration host has no custom original path patch");
         // Runtime DLLs come from the installed, matching official base version; no installed files are changed.
-        var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WinMerge");
+        var installed = Path.GetDirectoryName(executable)!;
         foreach (var dll in new[] { "vcomp140.dll", "darkmodelib\\darkmode.dll" })
         {
             var source = Path.Combine(installed, dll);
@@ -75,7 +76,7 @@ internal static class WinMergeIntegrationVerification
             };
             // WinMerge removes the final .dll; the full name can select a duplicate user-directory plugin.
             foreach (var argument in new[] { "/s-", "/u", "/noprefs", "/noninteractive", "/enableexitcode", "/minimize",
-                "/cfg", "PluginsEnabled=1", "/cfg", "PredifferMode=1", "/prediffer", PluginExporter.RouterName + ".comhost",
+                "/cfg", "PluginsEnabled=1", "/cfg", "PredifferMode=1", "/prediffer", "<Automatic>",
                 "/or", report }) start.ArgumentList.Add(argument);
             if (folders) start.ArgumentList.Add("/r");
             start.ArgumentList.Add(left); start.ArgumentList.Add(right);
@@ -93,11 +94,12 @@ internal static class WinMergeIntegrationVerification
             var records = File.ReadAllLines(log).Select(line => JsonDocument.Parse(line)).ToArray();
             try
             {
-                check(records.All(r => r.RootElement.GetProperty("originalPath").GetString() is { Length: > 0 } source && allFiles.Contains(source)),
-                    "real WinMerge " + name + " supplies only expected original paths");
+                check(records.All(r => r.RootElement.GetProperty("originalPath").ValueKind == JsonValueKind.Null &&
+                    r.RootElement.GetProperty("selectedGroupId").GetString() is "850" or "860"),
+                    "real WinMerge " + name + " selects group through standard host filters");
                 if (!folders)
-                    check(records.Any(r => r.RootElement.GetProperty("processingPath").GetString() != r.RootElement.GetProperty("originalPath").GetString()),
-                        "real WinMerge " + name + " handles editor temporary files");
+                    check(records.Any(r => !allFiles.Contains(r.RootElement.GetProperty("processingPath").GetString())),
+                        "real WinMerge " + name + " processes editor temporary files");
                 results.Add(new { name, exitCode = process.ExitCode, report, log, records = records.Length });
             }
             finally { foreach (var record in records) record.Dispose(); }

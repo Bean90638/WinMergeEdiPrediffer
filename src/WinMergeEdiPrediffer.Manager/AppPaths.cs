@@ -13,8 +13,7 @@ internal static class AppPaths
         {
             var configured = Environment.GetEnvironmentVariable("WINMERGE_EDI_WINMERGE_PATH");
             if (!string.IsNullOrWhiteSpace(configured)) return Path.GetFullPath(configured);
-            var bundled = Path.Combine(AppContext.BaseDirectory, "WinMerge", "WinMergeU.exe");
-            return File.Exists(bundled) ? bundled : Path.Combine(
+            return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WinMerge", "WinMergeU.exe");
         }
     }

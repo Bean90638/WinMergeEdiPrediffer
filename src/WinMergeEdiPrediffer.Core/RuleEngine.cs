@@ -14,9 +14,7 @@ public static class RuleEngine
         OrderedGroups(configuration).FirstOrDefault(g => IsPathMatch(g, fullPath));
 
     public static bool IsPathMatch(RuleGroup group, string fullPath) =>
-        // 路徑選組在 C# 內進行；Windows 路徑不分大小寫，保留正則本身的語法。
-        Regex.IsMatch(fullPath, group.FilePattern,
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeout);
+        WinMergePathFilter.IsMatch(group.FilePattern, fullPath);
 
     public static string Apply(RuleGroup group, string input)
     {

@@ -9,6 +9,7 @@ internal sealed class MainForm : Form
     private string configurationPath;
     private bool loading;
     private bool dirty;
+    private bool pendingPluginReload;
     private ReplacementRule? editingRule;
     private RuleGroup? displayedGroup;
     private readonly RuleGridView groups = new() { AccessibleName = "EDI 規則組" };
@@ -61,7 +62,7 @@ internal sealed class MainForm : Form
         editors.Controls.Add(new Label { Text = "所選規則：尋找", Dock = DockStyle.Fill }, 0, 0);
         editors.Controls.Add(new Label { Text = "所選規則：取代（正則可用 $1、${name}）", Dock = DockStyle.Fill }, 1, 0);
         editors.Controls.Add(find, 0, 1); editors.Controls.Add(replace, 1, 1); table.Controls.Add(editors, 0, 5);
-        table.Controls.Add(new Label { Text = "點選儲存格後 Ctrl+C 只複製該欄純文字。Windows 路徑請用 \\\\；路徑與內容正則均使用 C#/.NET 語法，內容保留 CR/LF。\n修改後按「套用到 WinMerge」；規則熱更新並刷新目前比對，WinMerge 與擴充功能視窗都可保持開啟。", Dock = DockStyle.Fill }, 0, 6);
+        table.Controls.Add(new Label { Text = "點選儲存格後 Ctrl+C 只複製該欄純文字。Windows 路徑請用 \\\\；路徑正則使用 WinMerge 相容語法，內容規則使用 .NET 正則並保留 CR/LF。\n修改後按「套用到 WinMerge」；規則可熱更新；修改組或路徑會自動重新載入外掛，無須重開 WinMerge。", Dock = DockStyle.Fill }, 0, 6);
         var statusBar = new StatusStrip(); statusBar.Items.Add(status);
         Controls.Add(table); Controls.Add(statusBar); Controls.Add(toolbar);
         groups.SelectionChanged += (_, _) => { if (!loading && !ReferenceEquals(SelectedGroup, displayedGroup)) BindRules(); };
@@ -217,7 +218,9 @@ internal sealed class MainForm : Form
         var result = PluginExporter.Export(configuration, configurationPath, AppPaths.Payload, AppPaths.DefaultPlugins,
             Application.ExecutablePath, AppPaths.Backups, destinationInUse: WinMergeIntegration.IsRunning());
         if (!result.RulesOnlyUpdate) WinMergeIntegration.ConfigureAutomatic();
-        var refresh = WinMergeRefresh.RefreshOpenWindows(result.ReloadPluginsRequired);
+        pendingPluginReload |= result.ReloadPluginsRequired;
+        var refresh = WinMergeRefresh.RefreshOpenWindows(pendingPluginReload);
+        pendingPluginReload = refresh.PendingProcesses.Count > 0 && pendingPluginReload;
         status.Text = $"已套用 {result.Manifest.Groups.Count} 個組。" + refresh.Message;
         // 日常套用以狀態列提示，不增加阻擋編輯的確認視窗。
         if (!result.RulesOnlyUpdate)

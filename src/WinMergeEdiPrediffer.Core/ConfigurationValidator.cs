@@ -16,6 +16,9 @@ public static class ConfigurationValidator
             if (string.IsNullOrWhiteSpace(group.Name)) throw new InvalidOperationException("規則組名稱不可空白。");
             if (string.IsNullOrWhiteSpace(group.FilePattern)) throw new InvalidOperationException($"「{group.Name}」的檔案路徑正則不可空白，任何檔案請填 .*。");
             ValidateExpression(group.FilePattern, $"{group.Name} / 檔案路徑正則");
+            try { _ = WinMergePathFilter.Compile(group.FilePattern); }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            { throw new InvalidOperationException($"「{group.Name} / 檔案路徑正則」：{ex.Message}", ex); }
             if (group.Rules is null) throw new InvalidOperationException($"「{group.Name}」缺少 rules。");
             var ruleIds = new HashSet<string>();
             foreach (var rule in group.Rules)

@@ -2,7 +2,7 @@ name: Build and Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'fix/**']
     tags: ['v*']
   pull_request:
     branches: [main]
@@ -32,6 +32,11 @@ jobs:
         run: |
           dotnet build ./WinMergeEdiPrediffer.slnx -c Release
           if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+
+      - name: Verify portable path filters and live deployment
+        run: |
+          dotnet run --project tests/WinMergeEdiPrediffer.CoreVerification -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { throw 'Core verification failed.' }
 
       - name: Stage Windows x64 package
         run: |
@@ -65,12 +70,23 @@ jobs:
             sdk = (dotnet --version)
           } | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
 
-      - name: Verify rules, deployment and native COM routing
+      - name: Download official WinMerge for integration verification
+        run: |
+          $zip = 'work/winmerge-official.zip'
+          New-Item -ItemType Directory -Force work | Out-Null
+          Invoke-WebRequest 'https://github.com/WinMerge/winmerge/releases/download/v2.16.58.2/winmerge-2.16.58.2-x64-exe.zip' -OutFile $zip
+          $expected = '5732474add39283f44bd20c66e57503d26f435e695feabc4140ba2f91d2e7804'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Official WinMerge checksum mismatch.' }
+          Expand-Archive $zip 'work/winmerge-official'
+
+      - name: Verify rules, deployment, native COM and official WinMerge
         run: |
           # COM verification writes a profile beside the DLL; test a copy to keep the ZIP clean.
           New-Item -ItemType Directory -Force work | Out-Null
           Copy-Item 'artifacts/WinMergeEdiPrediffer-win-x64/Plugin' 'work/verification-payload' -Recurse
-          dotnet run --project tests/WinMergeEdiPrediffer.Verification -c Release --no-build -- --com-payload work/verification-payload --report artifacts/verification.json
+          $winmerge = (Get-ChildItem work/winmerge-official -Filter WinMergeU.exe -Recurse | Select-Object -First 1).FullName
+          if (-not $winmerge) { throw 'Official WinMerge executable missing.' }
+          dotnet run --project tests/WinMergeEdiPrediffer.Verification -c Release --no-build -- --com-payload work/verification-payload --winmerge-path $winmerge --report artifacts/verification.json
           if ($LASTEXITCODE -ne 0) { throw 'Verification failed.' }
 
       - name: Create ZIP and SHA256 checksum

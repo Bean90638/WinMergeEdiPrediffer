@@ -95,11 +95,10 @@ internal sealed class NativeComClient : IDisposable
     }
 
     public (string Text, int Size, bool Changed, bool Handled) Prediff(string text, bool wrapVariants = false, string? fullPath = null,
-        string? processingPath = null, bool provideOriginalPath = true)
+        string? processingPath = null)
     {
         if (processingPath is not null || fullPath is not null)
             SetProperty("PluginVariables", processingPath ?? fullPath!);
-        if (provideOriginalPath && fullPath is not null) SetProperty("PluginOriginalFilePath", fullPath);
         var buffer = Marshal.AllocCoTaskMem(IntPtr.Size);
         var size = Marshal.AllocCoTaskMem(4);
         var changed = Marshal.AllocCoTaskMem(2);
