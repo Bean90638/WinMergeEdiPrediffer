@@ -76,9 +76,11 @@ internal static class RouterVerification
         var migrationRoot = root + "-migration";
         ExportResult Migrate() => PluginExporter.Export(configuration, Path.Combine(migrationRoot, "source.json"),
             payload, migrationRoot, Environment.ProcessPath!, Path.Combine(migrationRoot, "backups"));
+        Migrate();
+        configuration.Groups[0].Name += " renamed";
         var next = Migrate();
-        check(!next.RulesOnlyUpdate && next.ReloadPluginsRequired && next.BackupDirectory is not null,
-            "closed-host path change backs up and republishes entry filters");
+        check(next.RulesOnlyUpdate && next.ReloadPluginsRequired && next.BackupDirectory is not null,
+            "metadata change backs up shared configuration and requests an in-process reload");
         check(File.ReadAllText(Path.Combine(root, "user-file.txt")) == "preserve me", "deployment preserves unrelated files");
         // Exercise migration from the former custom-host Router deployment.
         var legacy = PluginExporter.RouterName + ".comhost.dll";

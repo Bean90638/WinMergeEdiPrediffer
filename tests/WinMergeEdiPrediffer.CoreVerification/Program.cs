@@ -18,7 +18,7 @@ foreach(var (pattern,path,hit) in patterns) {
  Check(compiled==compiled.ToUpperInvariant() && !compiled.Contains(';'), "filter survives host transformation "+pattern);
  Check(WinMergePathFilter.IsMatch(pattern,path)==hit,"preview result "+pattern);
 }
-foreach(var pattern in new[]{@"(?<name>A)",@"\p{L}+",@"(?-i)a",@"[A-Z-[X]]"}) {
+foreach(var pattern in new[]{@"(?<name>A)",@"\p{L}+",@"(?-i)a",@"[A-Z-[X]]",@"(?<=A+)B"}) {
  bool rejected=false; try{WinMergePathFilter.Compile(pattern);}catch(InvalidOperationException){rejected=true;}
  Check(rejected,"incompatible syntax explicitly rejected "+pattern);
 }

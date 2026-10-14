@@ -43,8 +43,8 @@ public static class WinMergePathFilter
             {
                 var tail = pattern[(i + 2)..];
                 if (!(tail.StartsWith(':') || tail.StartsWith('=') || tail.StartsWith('!') ||
-                      tail.StartsWith('>') || tail.StartsWith("<=", StringComparison.Ordinal) || tail.StartsWith("<!", StringComparison.Ordinal)))
-                    throw Unsupported("具名群組、條件群組或內嵌選項（僅支援開頭 (?i)）");
+                      tail.StartsWith('>')))
+                    throw Unsupported("後向查找、具名群組、條件群組或內嵌選項（僅支援開頭 (?i)）");
             }
             if (inClass && c == '-' && i + 1 < pattern.Length && pattern[i + 1] == '[')
                 throw Unsupported("字元類別相減");

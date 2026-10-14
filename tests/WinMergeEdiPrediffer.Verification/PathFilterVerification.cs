@@ -19,7 +19,7 @@ internal static class PathFilterVerification
             check(compiled == compiled.ToUpperInvariant() && !compiled.Contains(';') && WinMergePathFilter.IsMatch(pattern, path),
                 "path escapes survive official uppercase and semicolon splitting: " + pattern);
         }
-        foreach (var pattern in new[] { @"(?<name>A)", @"\p{L}+", @"(?-i)a", @"[A-Z-[X]]", @"(A)\1" })
+        foreach (var pattern in new[] { @"(?<name>A)", @"\p{L}+", @"(?-i)a", @"[A-Z-[X]]", @"(A)\1", @"(?<=A+)B" })
         {
             var rejected = false;
             try { WinMergePathFilter.Compile(pattern); }
