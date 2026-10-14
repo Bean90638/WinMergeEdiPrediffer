@@ -12,7 +12,7 @@ internal static class DeploymentVerification
         var backups = Path.Combine(root, "backups");
         var manager = Environment.ProcessPath!;
         var initial = PluginExporter.Export(configuration, source, payload, destination, manager, backups);
-        var missing = Path.Combine(destination, PluginExporter.RouterName, PluginExporter.PayloadName + ".profile.json");
+        var missing = Path.Combine(destination, initial.Manifest.Groups[0].PluginName, PluginExporter.PayloadName + ".profile.json");
         File.Delete(missing); // 模擬安裝配套遺失，強制進入完整修復流程。
         var manifest = Path.Combine(destination, PluginExporter.ManifestFilename);
         var before = initial.Manifest.OwnedFiles.Select(file => Path.Combine(destination, file))

@@ -5,6 +5,7 @@
     <Project Path="src/WinMergeEdiPrediffer.Plugin/WinMergeEdiPrediffer.Plugin.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WinMergeEdiPrediffer.CoreVerification/WinMergeEdiPrediffer.CoreVerification.csproj" />
     <Project Path="tests/WinMergeEdiPrediffer.Verification/WinMergeEdiPrediffer.Verification.csproj" />
   </Folder>
   <Folder Name="/tools/">

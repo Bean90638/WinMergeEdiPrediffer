@@ -17,17 +17,8 @@ internal static class WinMergeIntegration
     internal static void EnsureArchitecture()
     {
         var executable = AppPaths.WinMergeExecutable;
-        if (!WinMergeHostSupport.IsSupported(executable))
-            throw new InvalidOperationException("目前 WinMerge 未支援依原始路徑選組。請使用隨附的 WinMerge 修正版；自訂位置可設定 WINMERGE_EDI_WINMERGE_PATH。");
-        foreach (var process in Process.GetProcessesByName("WinMergeU"))
-        {
-            using (process)
-            {
-                var runningPath = process.MainModule?.FileName;
-                if (runningPath is null || !WinMergeHostSupport.IsSupported(runningPath))
-                    throw new InvalidOperationException("仍有未支援原始路徑選組的 WinMerge 正在執行。請先關閉原版 WinMerge，再開啟隨附的修正版後套用。");
-            }
-        }
+        if (!File.Exists(executable))
+            throw new FileNotFoundException("找不到 WinMerge，請安裝官方 x64 版本；可用 WINMERGE_EDI_WINMERGE_PATH 指定位置。", executable);
         using var reader = new BinaryReader(File.OpenRead(executable));
         reader.BaseStream.Position = 0x3C; var header = reader.ReadInt32(); reader.BaseStream.Position = header + 4;
         if (reader.ReadUInt16() != 0x8664) throw new InvalidOperationException("目前 COM DLL 是 x64，必須搭配 64 位元 WinMerge。");

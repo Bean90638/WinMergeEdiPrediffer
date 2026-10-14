@@ -10,19 +10,20 @@ internal static class RoutingDiagnostics
     private static readonly object Sync = new();
 
     internal static void Write(PluginProfile profile, string processingPath, string? originalPath,
-        RuleGroup? group, string reason, bool changed)
+        RuleGroup? group, string reason, bool changed, string transformed)
     {
         var destination = Environment.GetEnvironmentVariable("WINMERGE_EDI_DIAGNOSTICS_PATH");
         if (string.IsNullOrWhiteSpace(destination)) return;
         try
         {
-            var configuration = profile.RoutingConfiguration ?? new RuleConfiguration { Groups = [profile.Group] };
+            var configuration = new RuleConfiguration { Groups = [profile.Group] };
             var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ConfigurationJson.Serialize(configuration))));
             var record = JsonSerializer.Serialize(new
             {
                 timestampUtc = DateTime.UtcNow, processId = Environment.ProcessId,
                 processingPath, originalPath, selectedGroupId = group?.Id,
-                reason, changed, configurationFingerprint = fingerprint
+                reason, changed, configurationFingerprint = fingerprint,
+                outputFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(transformed)))
             });
             lock (Sync)
             {

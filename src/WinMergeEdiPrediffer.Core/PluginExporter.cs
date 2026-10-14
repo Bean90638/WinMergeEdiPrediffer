@@ -30,20 +30,22 @@ public static class PluginExporter
     public const string LiveRulesFilename = "EdiPrediff.rules.json";
     public const string RouterName = "EdiPrediff_Router";
     private static readonly string[] PayloadExtensions = [".bridge.dll", ".comhost.dll", ".dll", ".runtimeconfig.json", ".deps.json"];
-    private static readonly string[] RouterFiles =
+    private static string[] GroupFiles(string name) =>
     [
-        RouterName + "/" + PayloadName + ".comhost.dll", RouterName + "/" + PayloadName + ".dll",
-        RouterName + "/" + PayloadName + ".runtimeconfig.json", RouterName + "/" + PayloadName + ".deps.json",
-        RouterName + "/" + PayloadName + ".profile.json", RouterName + ".comhost.dll"
+        name + "/" + PayloadName + ".comhost.dll", name + "/" + PayloadName + ".dll",
+        name + "/" + PayloadName + ".runtimeconfig.json", name + "/" + PayloadName + ".deps.json",
+        name + "/" + PayloadName + ".profile.json", name + ".comhost.dll"
     ];
 
-    // 僅用於讀取舊 Schema 2 profile；新版路徑選組不交給 WinMerge 篩選器。
     public static string EffectiveFilter(RuleGroup group, IEnumerable<RuleGroup> previous)
     {
-        var exclusions = previous.Select(g => "(?:" + g.FilePattern + ")").ToArray();
+        var exclusions = previous.Select(g => "(?:" + WinMergePathFilter.Compile(g.FilePattern) + ")").ToArray();
         var exclude = exclusions.Length == 0 ? "" : "(?!.*(?:" + string.Join("|", exclusions) + "))";
-        return "^" + exclude + "(?=.*(?:" + group.FilePattern + ")).*$";
+        return "^" + exclude + "(?=.*(?:" + WinMergePathFilter.Compile(group.FilePattern) + ")).*$";
     }
+
+    private static string PluginName(string id) => "EdiPrediff_G" +
+        Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id.ToUpperInvariant())))[..24];
 
     public static ExportResult Export(RuleConfiguration configuration, string configurationPath,
         string payloadDirectory, string destinationDirectory, string managerPath, string backupRoot,
@@ -61,48 +63,69 @@ public static class PluginExporter
         foreach (var extension in PayloadExtensions)
             if (!File.Exists(Path.Combine(payload, PayloadName + extension))) throw new FileNotFoundException("缺少 COM 外掛部署檔。請先完整建置專案。", PayloadName + extension);
         var signature = PayloadSignature(payload);
+        var ordered = RuleEngine.OrderedGroups(configuration);
         var manifest = new ExportManifest
         {
             ConfigurationPath = Path.GetFullPath(configurationPath), SupportsLiveUpdates = true,
-            PathRouting = true, PayloadSignature = signature, OwnedFiles = [LiveRulesFilename, .. RouterFiles],
-            Groups = RuleEngine.OrderedGroups(configuration).Select(g => new ExportedGroup(g.Id, g.Name, RouterName, g.FilePattern)).ToList()
+            PathRouting = false, PayloadSignature = signature,
+            Groups = ordered.Select((g, index) => new ExportedGroup(g.Id, g.Name, PluginName(g.Id), EffectiveFilter(g, ordered.Take(index)))).ToList()
         };
-        if (old is not null && IsLiveDeployment(old, destination, payload, signature))
+        manifest.OwnedFiles = [LiveRulesFilename, .. manifest.Groups.SelectMany(g => GroupFiles(g.PluginName))];
+        if (old is not null && IsLiveDeployment(old, destination, payload, signature) &&
+            (destinationInUse || old.RetiredGroups.Count == 0))
         {
-            // 新增／移除組、路徑與排列順序變更也只發布 JSON；固定入口與外掛資訊不變。
+            // 已載入的 DLL 不覆寫、不刪除；新增入口先備妥，再原子發布共用 JSON。
+            // 刪除／停用的入口保留但不再自動匹配，關閉後下次套用才清理。
+            var activeIds = manifest.Groups.Select(g => g.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            manifest.RetiredGroups = old.Groups.Concat(old.RetiredGroups)
+                .Where(g => !activeIds.Contains(g.Id)).DistinctBy(g => g.Id, StringComparer.OrdinalIgnoreCase).ToList();
+            manifest.OwnedFiles = [LiveRulesFilename, .. manifest.Groups.Concat(manifest.RetiredGroups).SelectMany(g => GroupFiles(g.PluginName))];
             var backup = Backup(old, destination, backupRoot, manifest.GenerationId);
             var rulesPath = Path.Combine(destination, LiveRulesFilename);
             var oldRules = File.ReadAllText(rulesPath);
+            var added = new List<string>();
             try
             {
+                foreach (var entry in manifest.Groups.Where(g => !old.Groups.Concat(old.RetiredGroups).Any(previous => previous.Id.Equals(g.Id, StringComparison.OrdinalIgnoreCase))))
+                    WriteEntry(entry, manifest, payload, destination, managerPath, added);
                 AtomicWrite(rulesPath, LiveRules(configuration, configurationPath, managerPath));
                 AtomicWrite(manifestPath, JsonSerializer.Serialize(manifest, ConfigurationJson.Options));
             }
-            catch { AtomicWrite(rulesPath, oldRules); throw; }
-            return new(manifest, backup, RulesOnlyUpdate: true, ReloadPluginsRequired: false);
+            catch
+            {
+                AtomicWrite(rulesPath, oldRules);
+                foreach (var file in added) if (File.Exists(file)) File.Delete(file);
+                throw;
+            }
+            var reload = !old.Groups.SequenceEqual(manifest.Groups);
+            return new(manifest, backup, RulesOnlyUpdate: added.Count == 0, ReloadPluginsRequired: reload);
         }
         if (destinationInUse && old is not null)
-            throw new InvalidOperationException("這次需要升級或修復 COM 外掛程式，請關閉 WinMerge 後再套用一次。升級完成後，日常修改規則不必關閉 WinMerge 或擴充功能視窗。");
+            throw new InvalidOperationException("這次需要升級或修復 COM 外掛程式，請關閉 WinMerge 後再套用一次。日常修改規則、路徑及新增組不必重開。");
 
         var stage = Path.Combine(Path.GetTempPath(), "WinMergeEdiPrediffer", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path.Combine(stage, RouterName));
+        Directory.CreateDirectory(stage);
         string? fullBackup = null;
         var copied = new List<string>();
         var existingBefore = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            foreach (var extension in PayloadExtensions.Where(e => e != ".bridge.dll"))
-                File.Copy(Path.Combine(payload, PayloadName + extension), Path.Combine(stage, RouterName, PayloadName + extension));
-            var profile = new PluginProfile
+            foreach (var entry in manifest.Groups)
             {
-                SchemaVersion = 3, SharedRulesPath = "../" + LiveRulesFilename,
-                Group = new RuleGroup { Id = "router", Name = "EDI 預差異器" }, FileFilter = ".*",
-                ConfigurationPath = manifest.ConfigurationPath, ManagerPath = Path.GetFullPath(managerPath),
-                ComHostPath = PayloadName + ".comhost.dll"
-            };
-            File.WriteAllText(Path.Combine(stage, RouterName, PayloadName + ".profile.json"), JsonSerializer.Serialize(profile, ConfigurationJson.Options));
+                Directory.CreateDirectory(Path.Combine(stage, entry.PluginName));
+                foreach (var extension in PayloadExtensions.Where(e => e != ".bridge.dll"))
+                    File.Copy(Path.Combine(payload, PayloadName + extension), Path.Combine(stage, entry.PluginName, PayloadName + extension));
+                var profile = new PluginProfile
+                {
+                    SchemaVersion = 2, SharedRulesPath = "../" + LiveRulesFilename,
+                    Group = new RuleGroup { Id = entry.Id, Name = entry.Name }, FileFilter = entry.EffectiveFilter,
+                    ConfigurationPath = manifest.ConfigurationPath, ManagerPath = Path.GetFullPath(managerPath),
+                    ComHostPath = PayloadName + ".comhost.dll"
+                };
+                File.WriteAllText(Path.Combine(stage, entry.PluginName, PayloadName + ".profile.json"), JsonSerializer.Serialize(profile, ConfigurationJson.Options));
+                File.Copy(Path.Combine(payload, PayloadName + ".bridge.dll"), Path.Combine(stage, entry.PluginName + ".comhost.dll"));
+            }
             File.WriteAllText(Path.Combine(stage, LiveRulesFilename), LiveRules(configuration, configurationPath, managerPath));
-            File.Copy(Path.Combine(payload, PayloadName + ".bridge.dll"), Path.Combine(stage, RouterName + ".comhost.dll"));
             foreach (var file in manifest.OwnedFiles)
             {
                 var target = ResolveOwnedFile(destination, file);
@@ -165,18 +188,52 @@ public static class PluginExporter
         }
     }
 
-    private static bool IsLiveDeployment(ExportManifest manifest, string destination, string payload, string signature)
+    private static bool IsLiveDeployment(ExportManifest old, string destination, string payload, string signature)
     {
-        if (!manifest.SupportsLiveUpdates || !manifest.PathRouting || manifest.PayloadSignature != signature ||
-            !manifest.OwnedFiles.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(RouterFiles.Append(LiveRulesFilename)) ||
+        var entries = old.Groups.Concat(old.RetiredGroups).ToArray();
+        if (!old.SupportsLiveUpdates || old.PathRouting || old.PayloadSignature != signature ||
+            !old.OwnedFiles.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(entries.SelectMany(g => GroupFiles(g.PluginName)).Append(LiveRulesFilename)) ||
             !File.Exists(Path.Combine(destination, LiveRulesFilename))) return false;
-        if (!FilesEqual(Path.Combine(destination, RouterName + ".comhost.dll"), Path.Combine(payload, PayloadName + ".bridge.dll"))) return false;
+        foreach (var entry in entries)
+        {
+            if (!FilesEqual(Path.Combine(destination, entry.PluginName + ".comhost.dll"), Path.Combine(payload, PayloadName + ".bridge.dll"))) return false;
+            foreach (var extension in PayloadExtensions.Where(e => e != ".bridge.dll"))
+                if (!FilesEqual(Path.Combine(destination, entry.PluginName, PayloadName + extension), Path.Combine(payload, PayloadName + extension))) return false;
+            var profilePath = Path.Combine(destination, entry.PluginName, PayloadName + ".profile.json");
+            if (!File.Exists(profilePath)) return false;
+            var profile = JsonSerializer.Deserialize<PluginProfile>(File.ReadAllText(profilePath), ConfigurationJson.Options);
+            if (profile?.SchemaVersion != 2 || !profile.Group.Id.Equals(entry.Id, StringComparison.OrdinalIgnoreCase) ||
+                profile.SharedRulesPath != "../" + LiveRulesFilename || profile.ComHostPath != PayloadName + ".comhost.dll") return false;
+        }
+        return true;
+    }
+
+    private static void WriteEntry(ExportedGroup entry, ExportManifest manifest, string payload, string destination,
+        string managerPath, List<string> added)
+    {
+        foreach (var relative in GroupFiles(entry.PluginName))
+            if (File.Exists(ResolveOwnedFile(destination, relative)))
+                throw new IOException("新增入口與既有檔案衝突：" + relative);
+        Directory.CreateDirectory(Path.Combine(destination, entry.PluginName));
         foreach (var extension in PayloadExtensions.Where(e => e != ".bridge.dll"))
-            if (!FilesEqual(Path.Combine(destination, RouterName, PayloadName + extension), Path.Combine(payload, PayloadName + extension))) return false;
-        var profilePath = Path.Combine(destination, RouterName, PayloadName + ".profile.json");
-        if (!File.Exists(profilePath)) return false;
-        var profile = JsonSerializer.Deserialize<PluginProfile>(File.ReadAllText(profilePath), ConfigurationJson.Options);
-        return profile?.SchemaVersion == 3 && profile.SharedRulesPath == "../" + LiveRulesFilename && profile.ComHostPath == PayloadName + ".comhost.dll";
+        {
+            var target = Path.Combine(destination, entry.PluginName, PayloadName + extension);
+            added.Add(target);
+            File.Copy(Path.Combine(payload, PayloadName + extension), target);
+        }
+        var profilePath = Path.Combine(destination, entry.PluginName, PayloadName + ".profile.json");
+        added.Add(profilePath);
+        AtomicWrite(profilePath, JsonSerializer.Serialize(new PluginProfile
+        {
+            SchemaVersion = 2, SharedRulesPath = "../" + LiveRulesFilename,
+            Group = new RuleGroup { Id = entry.Id, Name = entry.Name }, FileFilter = entry.EffectiveFilter,
+            ConfigurationPath = manifest.ConfigurationPath, ManagerPath = Path.GetFullPath(managerPath),
+            ComHostPath = PayloadName + ".comhost.dll"
+        }, ConfigurationJson.Options));
+        // 掃描入口最後出現；此時其私有載荷已完整。
+        var bridge = Path.Combine(destination, entry.PluginName + ".comhost.dll");
+        added.Add(bridge);
+        File.Copy(Path.Combine(payload, PayloadName + ".bridge.dll"), bridge);
     }
 
     private static string LiveRules(RuleConfiguration configuration, string configurationPath, string managerPath) =>

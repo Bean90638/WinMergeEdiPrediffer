@@ -85,6 +85,7 @@ Check(!savedOrder.Contains("priority") && !savedOrder.Contains("isDefault") && C
 var legacyLive = JsonSerializer.Deserialize<LivePluginConfiguration>("{\"configuration\":" + legacyJson + "}", ConfigurationJson.Options)!;
 Check(legacyLive.Configuration.Groups[1].Id == "first" && legacyLive.Configuration.SchemaVersion == 2, "nested legacy COM configuration uses identical migration");
 ManagerVerification.Run(Check);
+PathFilterVerification.Run(Check);
 
 var payloadArgument = Array.IndexOf(args, "--com-payload");
 if (payloadArgument >= 0)
@@ -102,6 +103,8 @@ if (winMergeArgument >= 0)
     WinMergeIntegrationVerification.Run(Path.GetFullPath(args[winMergeArgument + 1]),
         Path.GetFullPath(args[payloadArgument + 1]), Check,
         fixtureArgument >= 0 ? Path.GetFullPath(args[fixtureArgument + 1]) : null);
+    LiveWinMergeVerification.Run(Path.GetFullPath(args[winMergeArgument + 1]), Path.GetFullPath(args[payloadArgument + 1]), Check);
+    LiveWinMergeVerification.Run(Path.GetFullPath(args[winMergeArgument + 1]), Path.GetFullPath(args[payloadArgument + 1]), Check, fromFolder: true);
 }
 var reportArgument = Array.IndexOf(args, "--report");
 if (reportArgument >= 0)

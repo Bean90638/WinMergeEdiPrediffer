@@ -34,16 +34,18 @@ internal static class WinMergeRefresh
                 {
                     var version = FileVersionInfo.GetVersionInfo(process.MainModule!.FileName);
                     if ((version.FileMajorPart, version.FileMinorPart, version.FileBuildPart, version.FilePrivatePart) != (2, 16, 58, 2))
-                        throw new InvalidOperationException("此版本請手動按 F5 刷新目前比對");
+                        throw new InvalidOperationException(reloadPluginsRequired
+                            ? "此版本請手動重新讀取外掛、選擇自動預差異化，再按 F5，不需重開 WinMerge"
+                            : "此版本請手動按 F5 刷新目前比對");
                     var windows = MainWindows(process.Id);
                     if (windows.Count == 0) throw new InvalidOperationException("找不到主視窗");
                     foreach (var window in windows)
                     {
-                        if (reloadPluginsRequired && !IsWindowEnabled(window)) throw new InvalidOperationException("首次載入外掛請先關閉擴充功能等對話視窗，再套用一次");
+                        if (reloadPluginsRequired && !IsWindowEnabled(window)) throw new InvalidOperationException("選組條件已更新；請關閉擴充功能等對話視窗後再按套用，不需重開 WinMerge");
                         // 非同步送入視窗程序，避免「檔案完全相同」訊息視窗阻塞管理器。
                         // 狀態列只表示已送出刷新要求，完成應以實際比對結果確認。
                         // 日常只送刷新，不釋放擴充功能視窗仍持有的外掛物件。
-                        // 固定 Router 的名稱、.* 篩選器及自動旗標不隨任何規則組變動。
+                        // 內容規則只刷新；選組條件變更重新載入並重設所有文件的自動選組。
                         if (reloadPluginsRequired)
                         {
                             Command(window, ReloadPlugins);

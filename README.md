@@ -4,15 +4,15 @@
 
 ## 1. 第一次使用
 
-電腦需有 **Windows x64、支援原始路徑選組的 WinMerge 2.16.58.2 修正版、.NET 10 Desktop Runtime x64 與 .NET 10 Runtime x64**。
+電腦需有 **Windows x64、官方 WinMerge x64（整合驗證版本：2.16.58.2）、.NET 10 Desktop Runtime x64 與 .NET 10 Runtime x64**。
 
-官方原版 WinMerge 的單檔比對只傳入暫存路徑，無法保證依目錄選組。本版須搭配隨附修正版；原版執行中或指定的配套不符時，管理器會在套用前提示。建置與使用方式見 [WinMerge 修正版操作說明](docs/original-path-host.md)。
+管理器為每個啟用的組產生獨立 COM 外掛入口，官方 WinMerge 透過 `PluginFileFilters` 依原始路徑選入口，再處理比對內容。資料夾與單檔比對都不需要客製 WinMerge 或 `PluginOriginalFilePath`。升級方式見 [官方 WinMerge 相容性與移轉](docs/original-path-host.md)。
 
 1. 拿到已建置程式時，請保留整個程式資料夾，包含 `Plugin` 子資料夾。
 2. 雙擊 `WinMergeEdiPrediffer.Manager.exe`，按「開啟設定」載入交接的 `profiles.json`。
-3. 第一次套用前關閉原版與修正版 WinMerge，按「套用到 WinMerge」，再開啟隨附的 WinMerge 修正版比對檔案。
+3. 第一次套用前關閉 WinMerge，按「套用到 WinMerge」，再開啟官方 WinMerge 比對檔案。
 
-若只有原始碼，先安裝 **.NET SDK 10.0.401**、**Visual Studio C++ x64 建置工具**（WinMerge 修正版另需 MFC 與 Windows SDK），在專案資料夾開啟 PowerShell 執行：
+若只有原始碼，先安裝 **.NET SDK 10.0.401**、**Visual Studio C++ x64 建置工具**，在專案資料夾開啟 PowerShell 執行：
 
 ```powershell
 dotnet build .\WinMergeEdiPrediffer.slnx -c Release
@@ -56,6 +56,8 @@ Start-Process .\src\WinMergeEdiPrediffer.Manager\bin\Release\net10.0-windows\Win
 
 這會匹配 `D:\ProjectGit\Brad\EDI\old\A_850.edi` 與 `new\A_850.edi`。路徑中的 `\` 要寫成 `\\`。
 
+路徑正則使用 .NET／WinMerge PCRE 的共通語法：支援 `\\`、`\.`、`.*`、群組、字元類別、前向查找、數量詞，以及開頭的 `(?i)`。路徑不分大小寫；`\d`、`\w`、`\s` 使用 ASCII 字元語意，管理器會轉換成不受 WinMerge 大寫處理影響的形式，分號也會安全編碼。後向查找、具名群組、Unicode 類別、其他內嵌選項等不相容語法會在套用前明確報錯。**內容規則仍使用完整 .NET 正則**。
+
 **啟用的組由上往下比對；每個檔案只用第一個符合的組。** 新組的路徑預設為 `.*`（任何檔案），請按需要修改。路徑 `.*` 的組放最後即可作為兜底，放前面則會先命中、擋住後面的組。組內啟用的規則由上至下執行。
 
 舊版的「預設組」勾選會強制最後才比對，與單純填 `.*` 不同。新版移除優先序與預設組欄位；載入舊設定時，依舊版優先序及預設組位置轉成等效排列，保留原本的選組結果。儲存後使用 Schema 2，只記錄顯示順序。
@@ -81,8 +83,8 @@ Start-Process .\src\WinMergeEdiPrediffer.Manager\bin\Release\net10.0-windows\Win
 ## 4. 常見問題與資料保留
 
 - **改了沒生效：** 確認組與規則已啟用、按過「套用到 WinMerge」，再按 F5。其他比對分頁需切換後各按 F5；自動刷新支援 WinMerge 2.16.58.2。
-- **要求關閉 WinMerge：** 升級 DLL 或修復安裝時需關閉一次；日常改組與規則不需重開，擴充功能視窗也可保持開啟。
-- **外掛清單只有一個 EDI 外掛：** 正常，多個組都在管理器設定。
+- **要求關閉 WinMerge：** 首次從舊 Router 升級、更新 DLL 或修復安裝可能需關閉一次；日常新增／刪除組、改路徑／順序／啟用狀態及內容規則均不必重開。選組條件變更時若擴充功能設定視窗開著，請關閉該視窗再按套用。
+- **外掛清單有多個 EDI 外掛：** 正常，每個啟用的組都有獨立入口；互斥的篩選器保證只選第一個命中的組。已載入後刪除的入口暫保留為停用，關閉 WinMerge 後下次套用會清理。
 - **測試資料有換行：** 預覽支援載入與貼上的 CRLF、LF、CR 及混合換行；原始內容與逐步結果均分行顯示，複製時保留原始換行格式。原始檔案不會被寫入。
 - **交接或搬動：** 保留 `profiles.json` 與整個程式資料夾；搬到新位置後重新套用。設定與安裝備份位於 `%APPDATA%\WinMergeEdiPrediffer\backups`，請保留。
 - **停止使用：** 關閉管理器即可；已套用的規則仍會供 WinMerge 使用。

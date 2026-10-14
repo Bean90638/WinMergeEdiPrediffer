@@ -15,7 +15,7 @@ public sealed class LiveProfileReader
     {
         bootstrap = JsonSerializer.Deserialize<PluginProfile>(ReadShared(profilePath), ConfigurationJson.Options)
             ?? throw new InvalidOperationException("COM 外掛缺少有效的 profile 設定。");
-        if (bootstrap.SchemaVersion is not (1 or 2 or 3)) throw new InvalidOperationException("不支援的 COM profile 版本。");
+        if (bootstrap.SchemaVersion is not (1 or 2)) throw new InvalidOperationException("不支援的 COM profile 版本。");
         ConfigurationValidator.Validate(new RuleConfiguration { Groups = [bootstrap.Group] });
         if (bootstrap.SchemaVersion >= 2)
         {
@@ -39,18 +39,6 @@ public sealed class LiveProfileReader
                     ?? throw new InvalidOperationException("已套用的規則不可為 null。");
                 if (live.SchemaVersion != 1) throw new InvalidOperationException("不支援的共用規則版本。");
                 ConfigurationValidator.Validate(live.Configuration);
-                if (bootstrap.SchemaVersion == 3)
-                {
-                    cachedProfile = new PluginProfile
-                    {
-                        SchemaVersion = 3, Group = bootstrap.Group, FileFilter = ".*",
-                        RoutingConfiguration = live.Configuration,
-                        ConfigurationPath = live.ConfigurationPath, ManagerPath = live.ManagerPath,
-                        ComHostPath = bootstrap.ComHostPath, SharedRulesPath = bootstrap.SharedRulesPath
-                    };
-                    cachedText = text;
-                    return cachedProfile;
-                }
                 var ordered = RuleEngine.OrderedGroups(live.Configuration);
                 var index = ordered.ToList().FindIndex(g => g.Id.Equals(bootstrap.Group.Id, StringComparison.OrdinalIgnoreCase));
                 // 已刪除／停用的組即使仍被開啟的文件持有，也必須立即停止替換。
