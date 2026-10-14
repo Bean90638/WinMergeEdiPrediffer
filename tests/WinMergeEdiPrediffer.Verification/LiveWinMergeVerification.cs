@@ -9,7 +9,7 @@ namespace WinMergeEdiPrediffer.Verification;
 
 internal static class LiveWinMergeVerification
 {
-    public static void Run(string executable, string payload, Action<bool, string> check)
+    public static void Run(string executable, string payload, Action<bool, string> check, bool fromFolder = false)
     {
         var root = Path.GetFullPath(Path.Combine("work", "official-live-" + Guid.NewGuid().ToString("N")));
         var runtime = Path.Combine(root, "runtime");
@@ -26,7 +26,7 @@ internal static class LiveWinMergeVerification
         var right = Path.Combine(root, "new", "850", "A.edi");
         Directory.CreateDirectory(Path.GetDirectoryName(left)!);
         Directory.CreateDirectory(Path.GetDirectoryName(right)!);
-        File.WriteAllText(left, "A\r\n"); File.WriteAllText(right, "B\r\n");
+        File.WriteAllText(left, "A\r\n"); File.WriteAllText(right, "RIGHT\r\n");
         var before = new[] { left, right }.ToDictionary(p => p, File.ReadAllBytes);
         var configuration = new RuleConfiguration { Groups =
         [
@@ -39,7 +39,8 @@ internal static class LiveWinMergeVerification
         var log = Path.Combine(root, "trace.jsonl");
         var start = new ProcessStartInfo(Path.Combine(runtime, "WinMergeU.exe")) { UseShellExecute = false, WorkingDirectory = runtime };
         foreach (var arg in new[] { "/s-", "/u", "/noprefs", "/minimize", "/cfg", "PluginsEnabled=1", "/cfg", "PredifferMode=1",
-            "/cfg", "ShowIdentical=0", "/prediffer", "<Automatic>", left, right }) start.ArgumentList.Add(arg);
+            "/cfg", "ShowIdentical=1", "/prediffer", "<Automatic>",
+            fromFolder ? Path.GetDirectoryName(left)! : left, fromFolder ? Path.GetDirectoryName(right)! : right }) start.ArgumentList.Add(arg);
         start.Environment["WINMERGE_EDI_DIAGNOSTICS_PATH"] = log;
         using var process = Process.Start(start) ?? throw new IOException("WinMerge start failed");
         try
@@ -55,17 +56,39 @@ internal static class LiveWinMergeVerification
                 using var reader = new StreamReader(stream);
                 return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
             }
-            bool Has(int after, string group, string text) => File.Exists(log) && ReadLines().Skip(after).Any(line =>
+            bool Has(int after, string group, string text, bool temporary = false) => File.Exists(log) && ReadLines().Skip(after).Any(line =>
             {
                 try
                 {
                     using var row = JsonDocument.Parse(line);
-                    return row.RootElement.GetProperty("selectedGroupId").GetString() == group &&
+                    return (!temporary || row.RootElement.GetProperty("processingPath").GetString() is { Length: > 0 } path && !before.ContainsKey(path)) &&
+                        row.RootElement.GetProperty("selectedGroupId").GetString() == group &&
                         row.RootElement.GetProperty("outputFingerprint").GetString() == Fingerprint(text);
                 }
                 catch (JsonException) { return false; }
             });
             Wait(() => Has(0, "850", "B\r\n"), "initial transformation");
+            if (fromFolder)
+            {
+                var countBeforeOpen = LineCount();
+                nint list = 0;
+                Wait(() =>
+                {
+                    EnumChildWindows(window, (child, _) =>
+                    {
+                        var name = new StringBuilder(256);
+                        GetClassName(child, name, name.Capacity);
+                        if (name.ToString() == "SysListView32" && SendMessageTimeout(child, 0x1004, 0, 0, 2, 1000, out var items) != 0 && items > 0)
+                            list = child;
+                        return true;
+                    }, 0);
+                    return list != 0;
+                }, "folder result list");
+                SendMessageTimeout(list, 0x0100, 0x23, 0, 2, 1000, out _); // End selects the only fixture file.
+                Command(window, 32866); // Compare selected folder item.
+                Wait(() => Has(countBeforeOpen, "850", "B\r\n", temporary: true), "folder result opens editor with original-path group");
+                check(true, "official folder result opens file comparison and retains original path selection");
+            }
             void Refresh(ExportResult change, int after, string group, string text, string name)
             {
                 if (change.ReloadPluginsRequired) { Command(window, 32884); Command(window, 33311); }
@@ -73,7 +96,7 @@ internal static class LiveWinMergeVerification
                 Wait(() => Has(after, group, text), name);
                 process.Refresh();
                 check(!process.HasExited && process.Id == processId && process.MainWindowHandle == window,
-                    "same official WinMerge process and window: " + name);
+                    "same official WinMerge process and window (" + (fromFolder ? "folder to file" : "direct file") + "): " + name);
             }
             var count = LineCount();
             configuration.Groups[0].Rules[0].Replacement = "C";
@@ -128,6 +151,9 @@ internal static class LiveWinMergeVerification
         if (SendMessageTimeout(window, 0x0111, (nuint)command, 0, 0x0002 | 0x0020, 10000, out _) == 0)
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
     }
+    private delegate bool EnumChildCallback(nint window, nint parameter);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(nint parent, EnumChildCallback callback, nint parameter);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, StringBuilder name, int maximum);
     [DllImport("user32.dll", SetLastError = true)] private static extern nint SendMessageTimeout(nint window, uint message,
         nuint wParam, nint lParam, uint flags, uint timeout, out nuint result);
 }

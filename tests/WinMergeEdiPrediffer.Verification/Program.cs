@@ -104,6 +104,7 @@ if (winMergeArgument >= 0)
         Path.GetFullPath(args[payloadArgument + 1]), Check,
         fixtureArgument >= 0 ? Path.GetFullPath(args[fixtureArgument + 1]) : null);
     LiveWinMergeVerification.Run(Path.GetFullPath(args[winMergeArgument + 1]), Path.GetFullPath(args[payloadArgument + 1]), Check);
+    LiveWinMergeVerification.Run(Path.GetFullPath(args[winMergeArgument + 1]), Path.GetFullPath(args[payloadArgument + 1]), Check, fromFolder: true);
 }
 var reportArgument = Array.IndexOf(args, "--report");
 if (reportArgument >= 0)
