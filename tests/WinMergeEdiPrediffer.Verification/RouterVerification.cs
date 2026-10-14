@@ -54,7 +54,7 @@ internal static class RouterVerification
                 var reenabled = Export(true);
                 check(reenabled.ReloadPluginsRequired && reenabled.Manifest.RetiredGroups.Count == 0 &&
                     client.Prediff("ST*850*0001~").Text.Contains("<LIVE>"), "reenabled group reuses retained entry without DLL replacement");
-                var added = new RuleGroup { Id = "new", Name = "New", FilePattern = @"\new\", Rules =
+                var added = new RuleGroup { Id = "new", Name = "New", FilePattern = @"\\new\\", Rules =
                     [new() { FindPattern = "X", Replacement = "Z" }] };
                 configuration.Groups.Insert(0, added);
                 var addition = Export(true);
